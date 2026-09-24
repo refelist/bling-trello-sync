@@ -106,11 +106,18 @@ class TrelloClient:
     def criar_checklist(self, card_id: str, nome: str) -> dict[str, Any]:
         return self._request("POST", f"/cards/{card_id}/checklists", corpo={"name": nome})
 
-    def criar_item_checklist(self, checklist_id: str, nome: str) -> dict[str, Any]:
+    def criar_item_checklist(
+        self, checklist_id: str, nome: str, marcado: bool = False
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/checklists/{checklist_id}/checkItems",
-            corpo={"name": nome[:LIMITE_ITEM], "pos": "bottom"},
+            corpo={"name": nome[:LIMITE_ITEM], "pos": "bottom", "checked": marcado},
+        )
+
+    def marcar_item_checklist(self, card_id: str, item_id: str) -> dict[str, Any]:
+        return self._request(
+            "PUT", f"/cards/{card_id}/checkItem/{item_id}", corpo={"state": "complete"}
         )
 
     def remover_item_checklist(self, checklist_id: str, item_id: str) -> Any:

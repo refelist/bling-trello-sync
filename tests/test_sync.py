@@ -15,6 +15,10 @@ class BlingFake:
         self.pedido = pedido
         self.filtros: list[dict] = []
         self.paginas: list[list[dict]] = []
+        self.notas: dict[int, dict] = {}
+
+    def obter_nota_fiscal(self, nota_fiscal_id: int) -> dict:
+        return self.notas[nota_fiscal_id]
 
     def obter_pedido_venda(self, pedido_id: int) -> dict:
         return self.pedido
@@ -37,6 +41,7 @@ class TrelloFake:
         self.checklists: dict[str, list[dict]] = {}
         self.itens_criados: list[tuple[str, str]] = []
         self.itens_removidos: list[tuple[str, str]] = []
+        self.itens_marcados: list[tuple[str, str]] = []
 
     def criar_card(self, id_list, nome, descricao, due=None, id_labels=None):
         card = {"id": "card-1", "shortUrl": "https://trello.com/c/abc", "idList": id_list, "name": nome}
@@ -64,14 +69,26 @@ class TrelloFake:
         self.checklists.setdefault(card_id, []).append(checklist)
         return checklist
 
-    def criar_item_checklist(self, checklist_id, nome):
-        item = {"id": f"{checklist_id}-item-{len(self.itens_criados) + 1}", "name": nome}
+    def criar_item_checklist(self, checklist_id, nome, marcado=False):
+        item = {
+            "id": f"{checklist_id}-item-{len(self.itens_criados) + 1}",
+            "name": nome,
+            "state": "complete" if marcado else "incomplete",
+        }
         self.itens_criados.append((checklist_id, nome))
         for checklists in self.checklists.values():
             for checklist in checklists:
                 if checklist["id"] == checklist_id:
                     checklist["checkItems"].append(item)
         return item
+
+    def marcar_item_checklist(self, card_id, item_id):
+        self.itens_marcados.append((card_id, item_id))
+        for checklist in self.checklists.get(card_id, []):
+            for item in checklist["checkItems"]:
+                if item["id"] == item_id:
+                    item["state"] = "complete"
+        return {}
 
     def remover_item_checklist(self, checklist_id, item_id):
         self.itens_removidos.append((checklist_id, item_id))
@@ -281,6 +298,38 @@ def test_checklist_com_um_item_por_produto(settings, pedido):
     sincronizador.sincronizar_pedido(12345678)
 
     assert trello.itens_criados == [("chk-1", "2 x BLG-5 Produto do Bling")]
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "incomplete"
+
+
+def test_item_totalmente_faturado_nasce_marcado(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 2}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "complete"
+
+
+def test_item_parcialmente_faturado_continua_desmarcado(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 1}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "incomplete"
+
+
+def test_item_existente_e_marcado_quando_faturado_depois(settings, pedido):
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    sincronizador.sincronizar_pedido(12345678)
+    pedido["notaFiscal"] = {"id": 77}
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 2}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.itens_marcados == [("card-1", "chk-1-item-1")]
 
 
 def test_checklist_reaproveitado_e_ajustado_na_atualizacao(settings, pedido):
