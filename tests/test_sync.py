@@ -154,3 +154,34 @@ def test_sincronizar_lote_registra_erro_e_continua(settings, pedido):
 )
 def test_data_para_trello(valor, esperado):
     assert _data_para_trello(valor) == esperado
+
+
+def test_nome_da_situacao_vem_do_env_sem_chamar_o_bling(settings, pedido):
+    settings.nomes_situacoes = {"9": "Em aberto"}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+
+    def nao_deve_ser_chamado(situacao_id):
+        raise AssertionError("não deveria consultar as situações do Bling")
+
+    bling.obter_situacao = nao_deve_ser_chamado
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert "**Situação:** Em aberto" in trello.criados[0]["desc"]
+
+
+def test_sem_acesso_as_situacoes_usa_o_id(settings, pedido):
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    chamadas = []
+
+    def sem_permissao(situacao_id):
+        chamadas.append(situacao_id)
+        raise RuntimeError("403 Forbidden")
+
+    bling.obter_situacao = sem_permissao
+    bling.paginas = [[{"id": 1}, {"id": 2}]]
+
+    sincronizador.sincronizar_lote()
+
+    assert chamadas == [9]
+    assert "**Situação:** 9" in trello.criados[0]["desc"]

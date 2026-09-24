@@ -24,7 +24,7 @@ cp .env.example .env    # preencha as credenciais
 ### 1. Aplicativo no Bling
 
 1. No Bling: **Central de Extensões → Área do Integrador → Criar aplicativo**.
-2. Escopos: **Pedidos de Venda** (obrigatório) e **Situações** (para o nome da situação aparecer no card).
+2. Escopo: **Pedidos de Venda**. O módulo **Situações** nem sempre está disponível na lista de escopos; sem ele o card mostra o id da situação, a menos que você preencha `NOMES_SITUACOES`.
 3. Link de redirecionamento: `http://localhost:8000/callback` (o mesmo valor de `BLING_REDIRECT_URI`).
 4. Copie o **Client Id** e o **Client Secret** para o `.env`.
 
@@ -51,6 +51,8 @@ python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>   # situações d
 ```
 
 Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env` com o JSON `"id da situação": "id da lista"`. Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+
+Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), os ids aparecem no log da sincronização e nos cards; use `NOMES_SITUACOES` no `.env` para dar nome a eles: `{"9":"Em aberto","12":"Atendido"}`.
 
 ## Uso
 

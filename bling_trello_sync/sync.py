@@ -49,8 +49,11 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
         f"**Data:** {pedido.get('data', '-')} | **Prevista:** {pedido.get('dataPrevista', '-')}",
         f"**Total:** {_moeda(pedido.get('total'))} (produtos {_moeda(pedido.get('totalProdutos'))})",
     ]
+    situacao_id = (pedido.get("situacao") or {}).get("id")
     if nome_situacao:
         linhas.append(f"**Situação:** {nome_situacao}")
+    elif situacao_id is not None:
+        linhas.append(f"**Situação:** {situacao_id}")
     if loja.get("id"):
         linhas.append(f"**Loja:** {loja.get('id')}")
     if pedido.get("numeroLoja"):
@@ -109,22 +112,36 @@ class Sincronizador:
         self.bling = bling
         self.trello = trello
         self._cache_situacoes: dict[int, str] = {}
+        self._situacoes_indisponiveis = False
 
-    def _nome_situacao(self, situacao_id: int | None) -> str | None:
+    def _nome_situacao(self, situacao_id: int | None, pedido: dict[str, Any]) -> str | None:
+        """Nome da situação: mapa do .env, depois o próprio pedido e, por fim, a API do Bling."""
         if situacao_id is None:
+            return None
+        configurado = self.settings.nome_para_situacao(situacao_id)
+        if configurado:
+            return configurado
+        situacao = pedido.get("situacao") or {}
+        no_pedido = situacao.get("nome") or situacao.get("descricao")
+        if no_pedido:
+            return str(no_pedido)
+        if self._situacoes_indisponiveis:
             return None
         if situacao_id not in self._cache_situacoes:
             try:
                 self._cache_situacoes[situacao_id] = self.bling.obter_situacao(situacao_id).get("nome", "")
             except Exception:  # noqa: BLE001 - nome da situação é informativo
-                logger.warning("Não foi possível obter o nome da situação %s", situacao_id)
+                self._situacoes_indisponiveis = True
+                logger.warning(
+                    "Sem acesso às situações do Bling; use NOMES_SITUACOES no .env para exibir os nomes"
+                )
                 return None
         return self._cache_situacoes[situacao_id] or None
 
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
         situacao_id = (pedido.get("situacao") or {}).get("id")
-        nome_situacao = self._nome_situacao(situacao_id)
+        nome_situacao = self._nome_situacao(situacao_id, pedido)
         id_list = self.settings.lista_para_situacao(situacao_id)
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
@@ -152,8 +169,11 @@ class Sincronizador:
             closed=False,
         )
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
-        if existente.situacao_id != situacao_id and nome_situacao:
-            self.trello.comentar(existente.card_id, f"Situação alterada no Bling para: {nome_situacao}")
+        if existente.situacao_id != situacao_id and situacao_id is not None:
+            self.trello.comentar(
+                existente.card_id,
+                f"Situação alterada no Bling para: {nome_situacao or situacao_id}",
+            )
         logger.info("Card atualizado para o pedido %s: %s", pedido_id, card["shortUrl"])
         return ResultadoSync(pedido_id, "card_atualizado", card["id"], card["shortUrl"])
 

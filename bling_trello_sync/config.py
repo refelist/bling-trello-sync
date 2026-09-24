@@ -24,9 +24,11 @@ class Settings(BaseSettings):
     trello_list_id_por_situacao: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
     trello_label_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
+    nomes_situacoes: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
+
     database_path: str = "bling_trello_sync.db"
 
-    @field_validator("trello_list_id_por_situacao", mode="before")
+    @field_validator("trello_list_id_por_situacao", "nomes_situacoes", mode="before")
     @classmethod
     def _parse_mapa_situacoes(cls, valor: Any) -> Any:
         if isinstance(valor, str):
@@ -45,6 +47,11 @@ class Settings(BaseSettings):
                 return json.loads(valor)
             return [item.strip() for item in valor.split(",") if item.strip()]
         return valor
+
+    def nome_para_situacao(self, situacao_id: int | None) -> str | None:
+        if situacao_id is None:
+            return None
+        return self.nomes_situacoes.get(str(situacao_id))
 
     def lista_para_situacao(self, situacao_id: int | None) -> str:
         if situacao_id is None:
