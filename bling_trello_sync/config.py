@@ -1,9 +1,9 @@
 import json
 from functools import lru_cache
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     trello_token: str
     trello_board_id: str
     trello_list_id_padrao: str
-    trello_list_id_por_situacao: dict[str, str] = Field(default_factory=dict)
-    trello_label_ids: list[str] = Field(default_factory=list)
+    trello_list_id_por_situacao: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
+    trello_label_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     database_path: str = "bling_trello_sync.db"
 
