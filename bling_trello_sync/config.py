@@ -1,0 +1,58 @@
+import json
+from functools import lru_cache
+from typing import Any
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Configuração da integração, lida de variáveis de ambiente ou de um arquivo .env."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    bling_client_id: str
+    bling_client_secret: str
+    bling_redirect_uri: str
+    bling_api_base: str = "https://api.bling.com.br/Api/v3"
+    bling_auth_base: str = "https://www.bling.com.br/Api/v3"
+
+    trello_api_key: str
+    trello_token: str
+    trello_board_id: str
+    trello_list_id_padrao: str
+    trello_list_id_por_situacao: dict[str, str] = Field(default_factory=dict)
+    trello_label_ids: list[str] = Field(default_factory=list)
+
+    database_path: str = "bling_trello_sync.db"
+    verificar_assinatura_webhook: bool = True
+
+    @field_validator("trello_list_id_por_situacao", mode="before")
+    @classmethod
+    def _parse_mapa_situacoes(cls, valor: Any) -> Any:
+        if isinstance(valor, str):
+            if not valor.strip():
+                return {}
+            return json.loads(valor)
+        return valor
+
+    @field_validator("trello_label_ids", mode="before")
+    @classmethod
+    def _parse_labels(cls, valor: Any) -> Any:
+        if isinstance(valor, str):
+            if not valor.strip():
+                return []
+            if valor.strip().startswith("["):
+                return json.loads(valor)
+            return [item.strip() for item in valor.split(",") if item.strip()]
+        return valor
+
+    def lista_para_situacao(self, situacao_id: int | None) -> str:
+        if situacao_id is None:
+            return self.trello_list_id_padrao
+        return self.trello_list_id_por_situacao.get(str(situacao_id), self.trello_list_id_padrao)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # type: ignore[call-arg]
