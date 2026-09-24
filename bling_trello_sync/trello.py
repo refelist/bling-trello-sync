@@ -3,6 +3,20 @@ from typing import Any
 import httpx
 
 API_BASE = "https://api.trello.com/1"
+LIMITE_NOME = 16384
+LIMITE_DESCRICAO = 16384
+
+
+class TrelloError(RuntimeError):
+    """Erro da API do Trello com o corpo da resposta, que traz o motivo da recusa."""
+
+    def __init__(self, mensagem: str, status_code: int) -> None:
+        super().__init__(mensagem)
+        self.status_code = status_code
+
+
+class CardNaoEncontrado(TrelloError):
+    """O card registrado localmente não existe mais no Trello."""
 
 
 class TrelloClient:
@@ -14,14 +28,25 @@ class TrelloClient:
     def _auth(self) -> dict[str, str]:
         return {"key": self.api_key, "token": self.token}
 
-    def _request(self, metodo: str, caminho: str, params: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        metodo: str,
+        caminho: str,
+        params: dict[str, Any] | None = None,
+        corpo: dict[str, Any] | None = None,
+    ) -> Any:
         resposta = self._client.request(
             metodo,
             f"{API_BASE}{caminho}",
             params={**self._auth(), **(params or {})},
+            json=corpo,
             headers={"Accept": "application/json"},
         )
-        resposta.raise_for_status()
+        if resposta.status_code >= 400:
+            mensagem = f"{resposta.status_code} em {metodo} {caminho}: {resposta.text}"
+            if resposta.status_code == 404:
+                raise CardNaoEncontrado(mensagem, resposta.status_code)
+            raise TrelloError(mensagem, resposta.status_code)
         return resposta.json()
 
     def listar_listas(self, board_id: str) -> list[dict[str, Any]]:
@@ -38,12 +63,17 @@ class TrelloClient:
         due: str | None = None,
         id_labels: list[str] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"idList": id_list, "name": nome, "desc": descricao, "pos": "top"}
+        corpo: dict[str, Any] = {
+            "idList": id_list,
+            "name": nome[:LIMITE_NOME],
+            "desc": descricao[:LIMITE_DESCRICAO],
+            "pos": "top",
+        }
         if due:
-            params["due"] = due
+            corpo["due"] = due
         if id_labels:
-            params["idLabels"] = ",".join(id_labels)
-        return self._request("POST", "/cards", params)
+            corpo["idLabels"] = id_labels
+        return self._request("POST", "/cards", corpo=corpo)
 
     def atualizar_card(
         self,
@@ -54,21 +84,21 @@ class TrelloClient:
         due: str | None = None,
         closed: bool | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {}
+        corpo: dict[str, Any] = {}
         if nome is not None:
-            params["name"] = nome
+            corpo["name"] = nome[:LIMITE_NOME]
         if descricao is not None:
-            params["desc"] = descricao
+            corpo["desc"] = descricao[:LIMITE_DESCRICAO]
         if id_list is not None:
-            params["idList"] = id_list
+            corpo["idList"] = id_list
         if due is not None:
-            params["due"] = due
+            corpo["due"] = due
         if closed is not None:
-            params["closed"] = str(closed).lower()
-        return self._request("PUT", f"/cards/{card_id}", params)
+            corpo["closed"] = closed
+        return self._request("PUT", f"/cards/{card_id}", corpo=corpo)
 
     def comentar(self, card_id: str, texto: str) -> dict[str, Any]:
-        return self._request("POST", f"/cards/{card_id}/actions/comments", {"text": texto})
+        return self._request("POST", f"/cards/{card_id}/actions/comments", corpo={"text": texto})
 
     def obter_card(self, card_id: str) -> dict[str, Any]:
         return self._request("GET", f"/cards/{card_id}", {"fields": "id,name,idList,closed,shortUrl"})

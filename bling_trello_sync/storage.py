@@ -20,11 +20,13 @@ CREATE TABLE IF NOT EXISTS card_por_pedido (
     atualizado_em REAL NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS evento_processado (
-    event_id TEXT PRIMARY KEY,
-    processado_em REAL NOT NULL
+CREATE TABLE IF NOT EXISTS estado (
+    chave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
 );
 """
+
+CHAVE_ULTIMA_SINCRONIZACAO = "ultima_sincronizacao"
 
 
 @dataclass
@@ -100,15 +102,21 @@ class Storage:
             return None
         return CardPedido(linha["pedido_id"], linha["card_id"], linha["card_url"], linha["situacao_id"])
 
-    def remover_card(self, pedido_id: int) -> None:
+    def obter_estado(self, chave: str) -> str | None:
         with self._conexao() as conn:
-            conn.execute("DELETE FROM card_por_pedido WHERE pedido_id = ?", (pedido_id,))
+            linha = conn.execute("SELECT valor FROM estado WHERE chave = ?", (chave,)).fetchone()
+        return linha["valor"] if linha else None
 
-    def registrar_evento(self, event_id: str) -> bool:
-        """Registra o evento e retorna False se ele já havia sido processado."""
+    def salvar_estado(self, chave: str, valor: str) -> None:
         with self._conexao() as conn:
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO evento_processado (event_id, processado_em) VALUES (?, ?)",
-                (event_id, time.time()),
+            conn.execute(
+                "INSERT INTO estado (chave, valor) VALUES (?, ?) "
+                "ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
+                (chave, valor),
             )
-        return cursor.rowcount > 0
+
+    def obter_ultima_sincronizacao(self) -> str | None:
+        return self.obter_estado(CHAVE_ULTIMA_SINCRONIZACAO)
+
+    def salvar_ultima_sincronizacao(self, momento: str) -> None:
+        self.salvar_estado(CHAVE_ULTIMA_SINCRONIZACAO, momento)

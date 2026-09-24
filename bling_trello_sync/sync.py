@@ -1,11 +1,12 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any
 
 from .bling import BlingClient
 from .config import Settings
 from .storage import Storage
-from .trello import TrelloClient
+from .trello import CardNaoEncontrado, TrelloClient
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,22 @@ def _moeda(valor: Any) -> str:
         return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except (TypeError, ValueError):
         return "-"
+
+
+def _data_para_trello(valor: Any) -> str | None:
+    """Converte a data do Bling para ISO-8601; datas ausentes ou zeradas viram None."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    texto = valor.strip()
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            momento = datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+        if momento.date() == date(1, 1, 1):
+            return None
+        return momento.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return None
 
 
 def titulo_do_card(pedido: dict[str, Any]) -> str:
@@ -32,8 +49,11 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
         f"**Data:** {pedido.get('data', '-')} | **Prevista:** {pedido.get('dataPrevista', '-')}",
         f"**Total:** {_moeda(pedido.get('total'))} (produtos {_moeda(pedido.get('totalProdutos'))})",
     ]
+    situacao_id = (pedido.get("situacao") or {}).get("id")
     if nome_situacao:
         linhas.append(f"**Situação:** {nome_situacao}")
+    elif situacao_id is not None:
+        linhas.append(f"**Situação:** {situacao_id}")
     if loja.get("id"):
         linhas.append(f"**Loja:** {loja.get('id')}")
     if pedido.get("numeroLoja"):
@@ -65,6 +85,20 @@ class ResultadoSync:
     card_url: str | None = None
 
 
+@dataclass
+class ResumoExecucao:
+    pedidos_encontrados: int = 0
+    cards_criados: int = 0
+    cards_atualizados: int = 0
+    erros: list[tuple[int, str]] = field(default_factory=list)
+
+    def registrar(self, resultado: ResultadoSync) -> None:
+        if resultado.acao == "card_criado":
+            self.cards_criados += 1
+        elif resultado.acao == "card_atualizado":
+            self.cards_atualizados += 1
+
+
 class Sincronizador:
     def __init__(
         self,
@@ -78,31 +112,60 @@ class Sincronizador:
         self.bling = bling
         self.trello = trello
         self._cache_situacoes: dict[int, str] = {}
+        self._situacoes_indisponiveis = False
 
-    def _nome_situacao(self, situacao_id: int | None) -> str | None:
+    def _nome_situacao(self, situacao_id: int | None, pedido: dict[str, Any]) -> str | None:
+        """Nome da situação: mapa do .env, depois o próprio pedido e, por fim, a API do Bling."""
         if situacao_id is None:
+            return None
+        configurado = self.settings.nome_para_situacao(situacao_id)
+        if configurado:
+            return configurado
+        situacao = pedido.get("situacao") or {}
+        no_pedido = situacao.get("nome") or situacao.get("descricao")
+        if no_pedido:
+            return str(no_pedido)
+        if self._situacoes_indisponiveis:
             return None
         if situacao_id not in self._cache_situacoes:
             try:
                 self._cache_situacoes[situacao_id] = self.bling.obter_situacao(situacao_id).get("nome", "")
             except Exception:  # noqa: BLE001 - nome da situação é informativo
-                logger.warning("Não foi possível obter o nome da situação %s", situacao_id)
+                self._situacoes_indisponiveis = True
+                logger.warning(
+                    "Sem acesso às situações do Bling; use NOMES_SITUACOES no .env para exibir os nomes"
+                )
                 return None
         return self._cache_situacoes[situacao_id] or None
 
-    def sincronizar_pedido(self, pedido_id: int, acao: str = "updated") -> ResultadoSync:
-        if acao == "deleted":
-            return self._arquivar(pedido_id)
-
+    def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
         situacao_id = (pedido.get("situacao") or {}).get("id")
-        nome_situacao = self._nome_situacao(situacao_id)
+        nome_situacao = self._nome_situacao(situacao_id, pedido)
         id_list = self.settings.lista_para_situacao(situacao_id)
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
-        due = pedido.get("dataPrevista") or None
+        due = _data_para_trello(pedido.get("dataPrevista"))
 
         existente = self.storage.obter_card(pedido_id)
+        if existente is not None:
+            try:
+                card = self.trello.atualizar_card(
+                    existente.card_id,
+                    nome=nome,
+                    descricao=descricao,
+                    id_list=id_list,
+                    due=due,
+                    closed=False,
+                )
+            except CardNaoEncontrado:
+                logger.warning(
+                    "Card %s do pedido %s não existe mais no Trello; criando outro",
+                    existente.card_id,
+                    pedido_id,
+                )
+                existente = None
+
         if existente is None:
             card = self.trello.criar_card(
                 id_list=id_list,
@@ -115,26 +178,46 @@ class Sincronizador:
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
-        card = self.trello.atualizar_card(
-            existente.card_id,
-            nome=nome,
-            descricao=descricao,
-            id_list=id_list,
-            due=due,
-            closed=False,
-        )
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
-        if existente.situacao_id != situacao_id and nome_situacao:
-            self.trello.comentar(existente.card_id, f"Situação alterada no Bling para: {nome_situacao}")
+        if existente.situacao_id != situacao_id and situacao_id is not None:
+            self.trello.comentar(
+                existente.card_id,
+                f"Situação alterada no Bling para: {nome_situacao or situacao_id}",
+            )
         logger.info("Card atualizado para o pedido %s: %s", pedido_id, card["shortUrl"])
         return ResultadoSync(pedido_id, "card_atualizado", card["id"], card["shortUrl"])
 
-    def _arquivar(self, pedido_id: int) -> ResultadoSync:
-        existente = self.storage.obter_card(pedido_id)
-        if existente is None:
-            return ResultadoSync(pedido_id, "ignorado_sem_card")
-        self.trello.atualizar_card(existente.card_id, closed=True)
-        self.trello.comentar(existente.card_id, "Pedido excluído no Bling.")
-        self.storage.remover_card(pedido_id)
-        logger.info("Card arquivado para o pedido excluído %s", pedido_id)
-        return ResultadoSync(pedido_id, "card_arquivado", existente.card_id, existente.card_url)
+    def sincronizar_lote(
+        self,
+        data_alteracao_inicial: str | None = None,
+        data_alteracao_final: str | None = None,
+        data_inicial: str | None = None,
+        data_final: str | None = None,
+        ids_situacoes: list[int] | None = None,
+        limite_paginas: int = 100,
+    ) -> ResumoExecucao:
+        """Busca os pedidos de venda que atendem ao filtro e cria/atualiza os cards."""
+        resumo = ResumoExecucao()
+        pagina = 1
+        while pagina <= limite_paginas:
+            pedidos = self.bling.listar_pedidos_vendas(
+                pagina=pagina,
+                data_inicial=data_inicial,
+                data_final=data_final,
+                data_alteracao_inicial=data_alteracao_inicial,
+                data_alteracao_final=data_alteracao_final,
+                ids_situacoes=ids_situacoes,
+            )
+            if not pedidos:
+                break
+            for pedido in pedidos:
+                pedido_id = int(pedido["id"])
+                resumo.pedidos_encontrados += 1
+                try:
+                    resumo.registrar(self.sincronizar_pedido(pedido_id))
+                except Exception as erro:  # noqa: BLE001 - um pedido com erro não para a execução
+                    logger.exception("Falha ao sincronizar o pedido %s", pedido_id)
+                    resumo.erros.append((pedido_id, str(erro)))
+            pagina += 1
+        return resumo
+

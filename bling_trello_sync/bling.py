@@ -116,10 +116,19 @@ class BlingClient:
         limite: int = 100,
         data_inicial: str | None = None,
         data_final: str | None = None,
+        data_alteracao_inicial: str | None = None,
+        data_alteracao_final: str | None = None,
+        ids_situacoes: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"pagina": pagina, "limite": limite}
         if data_inicial:
             params["dataInicial"] = data_inicial
         if data_final:
             params["dataFinal"] = data_final
+        if data_alteracao_inicial:
+            params["dataAlteracaoInicial"] = data_alteracao_inicial
+        if data_alteracao_final:
+            params["dataAlteracaoFinal"] = data_alteracao_final
+        if ids_situacoes:
+            params["idsSituacoes[]"] = ids_situacoes
         return self._get("/pedidos/vendas", params=params)["data"]

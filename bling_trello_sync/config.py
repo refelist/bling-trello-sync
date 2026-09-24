@@ -1,9 +1,9 @@
 import json
 from functools import lru_cache
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     bling_client_id: str
     bling_client_secret: str
-    bling_redirect_uri: str
+    bling_redirect_uri: str = "http://localhost:8000/callback"
     bling_api_base: str = "https://api.bling.com.br/Api/v3"
     bling_auth_base: str = "https://www.bling.com.br/Api/v3"
 
@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     trello_token: str
     trello_board_id: str
     trello_list_id_padrao: str
-    trello_list_id_por_situacao: dict[str, str] = Field(default_factory=dict)
-    trello_label_ids: list[str] = Field(default_factory=list)
+    trello_list_id_por_situacao: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
+    trello_label_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
+    nomes_situacoes: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
 
     database_path: str = "bling_trello_sync.db"
-    verificar_assinatura_webhook: bool = True
 
-    @field_validator("trello_list_id_por_situacao", mode="before")
+    @field_validator("trello_list_id_por_situacao", "nomes_situacoes", mode="before")
     @classmethod
     def _parse_mapa_situacoes(cls, valor: Any) -> Any:
         if isinstance(valor, str):
@@ -46,6 +47,11 @@ class Settings(BaseSettings):
                 return json.loads(valor)
             return [item.strip() for item in valor.split(",") if item.strip()]
         return valor
+
+    def nome_para_situacao(self, situacao_id: int | None) -> str | None:
+        if situacao_id is None:
+            return None
+        return self.nomes_situacoes.get(str(situacao_id))
 
     def lista_para_situacao(self, situacao_id: int | None) -> str:
         if situacao_id is None:
