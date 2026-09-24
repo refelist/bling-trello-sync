@@ -77,6 +77,24 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
     return "\n".join(linhas)
 
 
+NOME_CHECKLIST = "Itens do pedido"
+
+
+def itens_do_checklist(pedido: dict[str, Any]) -> list[str]:
+    """Um item de checklist por produto do pedido."""
+    itens = []
+    for item in pedido.get("itens") or []:
+        quantidade = item.get("quantidade", 0)
+        try:
+            quantidade_texto = f"{float(quantidade):g}"
+        except (TypeError, ValueError):
+            quantidade_texto = str(quantidade)
+        codigo = item.get("codigo") or ""
+        descricao = item.get("descricao") or ""
+        itens.append(f"{quantidade_texto} x {codigo} {descricao}".replace("  ", " ").strip())
+    return itens
+
+
 @dataclass
 class ResultadoSync:
     pedido_id: int
@@ -141,6 +159,25 @@ class Sincronizador:
                 return None
         return self._cache_situacoes[situacao_id] or None
 
+    def _sincronizar_checklist(self, card_id: str, itens: list[str]) -> None:
+        """Mantém o checklist igual aos produtos do pedido, preservando os itens já marcados."""
+        if not itens:
+            return
+        checklist = next(
+            (c for c in self.trello.listar_checklists(card_id) if c.get("name") == NOME_CHECKLIST),
+            None,
+        )
+        if checklist is None:
+            checklist = self.trello.criar_checklist(card_id, NOME_CHECKLIST)
+
+        existentes = {item.get("name"): item for item in checklist.get("checkItems") or []}
+        for nome in itens:
+            if nome not in existentes:
+                self.trello.criar_item_checklist(checklist["id"], nome)
+        for nome, item in existentes.items():
+            if nome not in itens:
+                self.trello.remover_item_checklist(checklist["id"], item["id"])
+
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
         loja_id = (pedido.get("loja") or {}).get("id")
@@ -182,10 +219,12 @@ class Sincronizador:
                 id_labels=self.settings.trello_label_ids,
             )
             self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
+            self._sincronizar_checklist(card["id"], itens_do_checklist(pedido))
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
+        self._sincronizar_checklist(card["id"], itens_do_checklist(pedido))
         if existente.situacao_id != situacao_id and situacao_id is not None:
             self.trello.comentar(
                 existente.card_id,

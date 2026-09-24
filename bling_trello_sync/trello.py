@@ -5,6 +5,7 @@ import httpx
 API_BASE = "https://api.trello.com/1"
 LIMITE_NOME = 16384
 LIMITE_DESCRICAO = 16384
+LIMITE_ITEM = 16384
 
 
 class TrelloError(RuntimeError):
@@ -96,6 +97,24 @@ class TrelloClient:
         if closed is not None:
             corpo["closed"] = closed
         return self._request("PUT", f"/cards/{card_id}", corpo=corpo)
+
+    def listar_checklists(self, card_id: str) -> list[dict[str, Any]]:
+        return self._request(
+            "GET", f"/cards/{card_id}/checklists", {"fields": "id,name", "checkItems": "all"}
+        )
+
+    def criar_checklist(self, card_id: str, nome: str) -> dict[str, Any]:
+        return self._request("POST", f"/cards/{card_id}/checklists", corpo={"name": nome})
+
+    def criar_item_checklist(self, checklist_id: str, nome: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/checklists/{checklist_id}/checkItems",
+            corpo={"name": nome[:LIMITE_ITEM], "pos": "bottom"},
+        )
+
+    def remover_item_checklist(self, checklist_id: str, item_id: str) -> Any:
+        return self._request("DELETE", f"/checklists/{checklist_id}/checkItems/{item_id}")
 
     def comentar(self, card_id: str, texto: str) -> dict[str, Any]:
         return self._request("POST", f"/cards/{card_id}/actions/comments", corpo={"text": texto})

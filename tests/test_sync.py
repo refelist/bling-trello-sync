@@ -34,6 +34,9 @@ class TrelloFake:
         self.criados: list[dict] = []
         self.atualizados: list[dict] = []
         self.comentarios: list[tuple[str, str]] = []
+        self.checklists: dict[str, list[dict]] = {}
+        self.itens_criados: list[tuple[str, str]] = []
+        self.itens_removidos: list[tuple[str, str]] = []
 
     def criar_card(self, id_list, nome, descricao, due=None, id_labels=None):
         card = {"id": "card-1", "shortUrl": "https://trello.com/c/abc", "idList": id_list, "name": nome}
@@ -45,6 +48,33 @@ class TrelloFake:
             {"id": card_id, "name": nome, "idList": id_list, "due": due, "closed": closed}
         )
         return {"id": card_id, "shortUrl": "https://trello.com/c/abc"}
+
+    def listar_checklists(self, card_id):
+        return self.checklists.get(card_id, [])
+
+    def criar_checklist(self, card_id, nome):
+        checklist = {"id": f"chk-{len(self.checklists) + 1}", "name": nome, "checkItems": []}
+        self.checklists.setdefault(card_id, []).append(checklist)
+        return checklist
+
+    def criar_item_checklist(self, checklist_id, nome):
+        item = {"id": f"{checklist_id}-item-{len(self.itens_criados) + 1}", "name": nome}
+        self.itens_criados.append((checklist_id, nome))
+        for checklists in self.checklists.values():
+            for checklist in checklists:
+                if checklist["id"] == checklist_id:
+                    checklist["checkItems"].append(item)
+        return item
+
+    def remover_item_checklist(self, checklist_id, item_id):
+        self.itens_removidos.append((checklist_id, item_id))
+        for checklists in self.checklists.values():
+            for checklist in checklists:
+                if checklist["id"] == checklist_id:
+                    checklist["checkItems"] = [
+                        item for item in checklist["checkItems"] if item["id"] != item_id
+                    ]
+        return {}
 
     def comentar(self, card_id, texto):
         self.comentarios.append((card_id, texto))
@@ -236,3 +266,25 @@ def test_lote_pula_loja_excluida_sem_consultar_o_pedido(settings, pedido):
     assert resumo.pedidos_ignorados == 1
     assert resumo.cards_criados == 1
     assert len(trello.criados) == 1
+
+
+def test_checklist_com_um_item_por_produto(settings, pedido):
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.itens_criados == [("chk-1", "2 x BLG-5 Produto do Bling")]
+
+
+def test_checklist_reaproveitado_e_ajustado_na_atualizacao(settings, pedido):
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+    sincronizador.sincronizar_pedido(12345678)
+    pedido["itens"] = [{"codigo": "BLG-9", "descricao": "Outro produto", "quantidade": 1, "valor": 10.0}]
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert len(trello.checklists["card-1"]) == 1
+    assert [item["name"] for item in trello.checklists["card-1"][0]["checkItems"]] == [
+        "1 x BLG-9 Outro produto"
+    ]
+    assert trello.itens_removidos == [("chk-1", "chk-1-item-1")]
