@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS card_por_pedido (
     atualizado_em REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS nota_comentada (
+    pedido_id INTEGER NOT NULL,
+    nota_id INTEGER NOT NULL,
+    comentado_em REAL NOT NULL,
+    PRIMARY KEY (pedido_id, nota_id)
+);
+
 CREATE TABLE IF NOT EXISTS estado (
     chave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
@@ -101,6 +108,16 @@ class Storage:
         if linha is None:
             return None
         return CardPedido(linha["pedido_id"], linha["card_id"], linha["card_url"], linha["situacao_id"])
+
+    def registrar_nota_comentada(self, pedido_id: int, nota_id: int) -> bool:
+        """Grava a nota e devolve True só na primeira vez, para não repetir o comentário."""
+        with self._conexao() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO nota_comentada (pedido_id, nota_id, comentado_em) "
+                "VALUES (?, ?, ?)",
+                (pedido_id, nota_id, time.time()),
+            )
+            return cursor.rowcount > 0
 
     def obter_estado(self, chave: str) -> str | None:
         with self._conexao() as conn:

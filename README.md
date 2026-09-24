@@ -7,8 +7,9 @@ Cada execução:
 1. busca os pedidos alterados desde a última execução (ou no período que você informar);
 2. cria um card para o pedido que ainda não tem card, na lista correspondente à situação;
 3. cria no card um checklist "Itens do pedido", com um item por produto, marcando automaticamente os produtos já faturados nas notas fiscais do pedido (os itens marcados à mão são preservados nas execuções seguintes);
-4. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
-5. guarda o momento da execução para que a próxima continue de onde parou.
+4. comenta no card o número e a data de emissão de cada nota fiscal do pedido (uma vez por nota);
+5. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
+6. guarda o momento da execução para que a próxima continue de onde parou.
 
 O vínculo `pedido → card` fica em um banco SQLite local, então um pedido nunca vira dois cards.
 

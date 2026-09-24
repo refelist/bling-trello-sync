@@ -4,6 +4,7 @@ from bling_trello_sync.storage import Storage
 from bling_trello_sync.sync import (
     Sincronizador,
     _data_para_trello,
+    comentario_da_nota,
     descricao_do_card,
     titulo_do_card,
 )
@@ -319,6 +320,24 @@ def test_item_parcialmente_faturado_continua_desmarcado(settings, pedido):
     sincronizador.sincronizar_pedido(12345678)
 
     assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "incomplete"
+
+
+def test_comentario_da_nota():
+    assert comentario_da_nota({"numero": "1234", "dataEmissao": "2026-09-16 10:20:30"}) == (
+        "Nota fiscal 1234\nEmitida em 16/09/2026"
+    )
+    assert comentario_da_nota({"dataEmissao": "2026-09-16"}) is None
+
+
+def test_comenta_nota_fiscal_uma_vez_por_nota(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"id": 77, "numero": "1234", "dataEmissao": "2026-09-16 10:20:30", "itens": []}
+
+    sincronizador.sincronizar_pedido(12345678)
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.comentarios == [("card-1", "Nota fiscal 1234\nEmitida em 16/09/2026")]
 
 
 def test_item_existente_e_marcado_quando_faturado_depois(settings, pedido):

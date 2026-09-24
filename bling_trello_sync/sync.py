@@ -34,6 +34,38 @@ def _data_para_trello(valor: Any) -> str | None:
     return None
 
 
+def _data_brasileira(valor: Any) -> str | None:
+    """Formata datas do Bling (com ou sem hora, ISO ou não) como dd/mm/aaaa."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    texto = valor.strip().replace("T", " ")[:19]
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(texto, formato).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    return None
+
+
+def comentario_da_nota(nota: dict[str, Any]) -> str | None:
+    """Comentário com número e data de emissão da nota fiscal."""
+    numero = nota.get("numero") or nota.get("numeroNota")
+    if not numero:
+        return None
+    emissao = next(
+        (
+            formatada
+            for campo in ("dataEmissao", "dataOperacao", "data")
+            if (formatada := _data_brasileira(nota.get(campo)))
+        ),
+        None,
+    )
+    texto = f"Nota fiscal {numero}"
+    if emissao:
+        texto += f"\nEmitida em {emissao}"
+    return texto
+
+
 def titulo_do_card(pedido: dict[str, Any]) -> str:
     numero = pedido.get("numero") or pedido.get("id")
     contato = (pedido.get("contato") or {}).get("nome", "Sem contato")
@@ -216,7 +248,9 @@ class Sincronizador:
         notas = []
         for nota_id in ids:
             try:
-                notas.append(self.bling.obter_nota_fiscal(nota_id))
+                nota = self.bling.obter_nota_fiscal(nota_id)
+                nota.setdefault("id", nota_id)
+                notas.append(nota)
             except Exception:  # noqa: BLE001 - marcar o checklist é opcional
                 self._notas_indisponiveis = True
                 logger.warning(
@@ -225,6 +259,16 @@ class Sincronizador:
                 )
                 return []
         return notas
+
+    def _comentar_notas(self, pedido_id: int, card_id: str, notas: list[dict[str, Any]]) -> None:
+        """Comenta número e data de cada nota fiscal do pedido, uma única vez por nota."""
+        for nota in notas:
+            texto = comentario_da_nota(nota)
+            nota_id = nota.get("id")
+            if not texto or not nota_id:
+                continue
+            if self.storage.registrar_nota_comentada(pedido_id, int(nota_id)):
+                self.trello.comentar(card_id, texto)
 
     def _sincronizar_checklist(self, card_id: str, itens: list[tuple[str, bool]]) -> None:
         """Mantém o checklist igual aos produtos do pedido, preservando os itens já marcados."""
@@ -261,7 +305,8 @@ class Sincronizador:
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
         due = _data_para_trello(pedido.get("dataPrevista"))
-        itens = itens_do_checklist(pedido, quantidades_faturadas(self._notas_do_pedido(pedido)))
+        notas = self._notas_do_pedido(pedido)
+        itens = itens_do_checklist(pedido, quantidades_faturadas(notas))
 
         existente = self.storage.obter_card(pedido_id)
         if existente is not None:
@@ -292,11 +337,13 @@ class Sincronizador:
             )
             self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
             self._sincronizar_checklist(card["id"], itens)
+            self._comentar_notas(pedido_id, card["id"], notas)
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
         self._sincronizar_checklist(card["id"], itens)
+        self._comentar_notas(pedido_id, card["id"], notas)
         if existente.situacao_id != situacao_id and situacao_id is not None:
             self.trello.comentar(
                 existente.card_id,
