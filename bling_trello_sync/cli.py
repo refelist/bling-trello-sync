@@ -1,7 +1,9 @@
 """Linha de comando da integração: a sincronização acontece quando este programa é executado."""
 
 import argparse
+import json
 import logging
+from collections import Counter
 from datetime import datetime, timedelta
 
 from .bling import BlingClient
@@ -65,12 +67,30 @@ def _construir_parser() -> argparse.ArgumentParser:
     p_pedido = sub.add_parser("sincronizar-pedido", help="Sincroniza um único pedido pelo ID do Bling")
     p_pedido.add_argument("pedido_id", type=int)
 
+    p_json = sub.add_parser("pedido-json", help="Mostra o JSON que o Bling devolve para um pedido")
+    p_json.add_argument("pedido_id", type=int)
+    p_json.add_argument("--numero", action="store_true", help="Trata o argumento como número do pedido")
+
     sub.add_parser("listas-trello", help="Lista os IDs das listas do board configurado")
     sub.add_parser("labels-trello", help="Lista os IDs das etiquetas do board configurado")
     sub.add_parser("modulos-bling", help="Lista os módulos de situações do Bling")
 
+    p_lojas = sub.add_parser(
+        "lojas-bling",
+        help="Mostra os IDs de loja que aparecem nos pedidos recentes, com exemplos de número",
+    )
+    p_lojas.add_argument("--dias", type=int, default=30, help="Período analisado (padrão: 30 dias)")
+    p_lojas.add_argument("--limite-paginas", type=int, default=5)
+
     p_situacoes = sub.add_parser("situacoes-bling", help="Lista as situações de um módulo do Bling")
     p_situacoes.add_argument("id_modulo", type=int)
+
+    p_situacoes_pedidos = sub.add_parser(
+        "situacoes-pedidos",
+        help="Mostra os IDs de situação que aparecem nos pedidos recentes, com exemplos de número",
+    )
+    p_situacoes_pedidos.add_argument("--dias", type=int, default=30)
+    p_situacoes_pedidos.add_argument("--limite-paginas", type=int, default=5)
 
     return parser
 
@@ -122,13 +142,74 @@ def _comando_sincronizar(args: argparse.Namespace, sincronizador: Sincronizador,
     print(
         f"{resumo.pedidos_encontrados} pedidos processados | "
         f"{resumo.cards_criados} cards criados | {resumo.cards_atualizados} atualizados | "
-        f"{len(resumo.erros)} erros"
+        f"{resumo.pedidos_ignorados} ignorados | {len(resumo.erros)} erros"
     )
     for pedido_id, erro in resumo.erros:
         print(f"  erro no pedido {pedido_id}: {erro}")
 
     if not resumo.erros and alteracao_final is None:
         storage.salvar_ultima_sincronizacao(inicio_execucao)
+
+
+def _comando_lojas(args: argparse.Namespace, bling: BlingClient) -> None:
+    inicial = (datetime.now() - timedelta(days=args.dias)).strftime(FORMATO_DATA)
+    totais: Counter[str] = Counter()
+    exemplos: dict[str, list[str]] = {}
+    for pagina in range(1, args.limite_paginas + 1):
+        pedidos = bling.listar_pedidos_vendas(pagina=pagina, data_inicial=inicial)
+        if not pedidos:
+            break
+        for pedido in pedidos:
+            loja_id = (pedido.get("loja") or {}).get("id")
+            if loja_id is None:
+                completo = bling.obter_pedido_venda(int(pedido["id"]))
+                loja_id = (completo.get("loja") or {}).get("id")
+            chave = str(loja_id) if loja_id is not None else "(sem loja)"
+            totais[chave] += 1
+            numeros = exemplos.setdefault(chave, [])
+            if len(numeros) < 3:
+                numeros.append(str(pedido.get("numero", pedido.get("id"))))
+
+    if not totais:
+        print(f"Nenhum pedido encontrado desde {inicial}.")
+        return
+    print(f"Lojas nos pedidos desde {inicial} (use os IDs em LOJAS_IGNORADAS/LOJAS_PERMITIDAS):")
+    for chave, total in totais.most_common():
+        print(f"  {chave}  {total} pedidos  (ex.: {', '.join(exemplos[chave])})")
+
+
+def _comando_pedido_json(args: argparse.Namespace, bling: BlingClient) -> None:
+    pedido_id = args.pedido_id
+    if args.numero:
+        encontrados = bling.listar_pedidos_vendas(pagina=1, numero=args.pedido_id)
+        if not encontrados:
+            raise SystemExit(f"Nenhum pedido com número {args.pedido_id}.")
+        pedido_id = int(encontrados[0]["id"])
+    print(json.dumps(bling.obter_pedido_venda(pedido_id), indent=2, ensure_ascii=False))
+
+
+def _comando_situacoes_pedidos(args: argparse.Namespace, bling: BlingClient) -> None:
+    inicial = (datetime.now() - timedelta(days=args.dias)).strftime(FORMATO_DATA)
+    totais: Counter[str] = Counter()
+    exemplos: dict[str, list[str]] = {}
+    for pagina in range(1, args.limite_paginas + 1):
+        pedidos = bling.listar_pedidos_vendas(pagina=pagina, data_inicial=inicial)
+        if not pedidos:
+            break
+        for pedido in pedidos:
+            situacao = pedido.get("situacao") or {}
+            chave = str(situacao.get("id", "(sem situação)"))
+            totais[chave] += 1
+            numeros = exemplos.setdefault(chave, [])
+            if len(numeros) < 3:
+                numeros.append(str(pedido.get("numero", pedido.get("id"))))
+
+    if not totais:
+        print(f"Nenhum pedido encontrado desde {inicial}.")
+        return
+    print(f"Situações nos pedidos desde {inicial} (use os IDs em TRELLO_LIST_ID_POR_SITUACAO):")
+    for chave, total in totais.most_common():
+        print(f"  {chave}  {total} pedidos  (ex.: {', '.join(exemplos[chave])})")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,9 +232,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "labels-trello":
         for label in trello.listar_labels(settings.trello_board_id):
             print(f"{label['id']}  {label.get('color')}  {label.get('name')}")
+    elif args.comando == "lojas-bling":
+        _comando_lojas(args, bling)
     elif args.comando == "modulos-bling":
         for modulo in bling.listar_modulos_situacoes():
             print(f"{modulo.get('id')}  {modulo.get('nome')}")
+    elif args.comando == "pedido-json":
+        _comando_pedido_json(args, bling)
+    elif args.comando == "situacoes-pedidos":
+        _comando_situacoes_pedidos(args, bling)
     elif args.comando == "situacoes-bling":
         for situacao in bling.listar_situacoes_do_modulo(args.id_modulo):
             print(f"{situacao.get('id')}  {situacao.get('nome')}")

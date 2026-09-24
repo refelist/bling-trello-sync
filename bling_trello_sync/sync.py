@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .bling import BlingClient
-from .config import Settings
+from .config import Settings, normalizar
 from .storage import Storage
 from .trello import CardNaoEncontrado, TrelloClient
 
@@ -32,6 +32,38 @@ def _data_para_trello(valor: Any) -> str | None:
             return None
         return momento.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     return None
+
+
+def _data_brasileira(valor: Any) -> str | None:
+    """Formata datas do Bling (com ou sem hora, ISO ou não) como dd/mm/aaaa."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    texto = valor.strip().replace("T", " ")[:19]
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(texto, formato).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    return None
+
+
+def comentario_da_nota(nota: dict[str, Any]) -> str | None:
+    """Comentário com número e data de emissão da nota fiscal."""
+    numero = nota.get("numero") or nota.get("numeroNota")
+    if not numero:
+        return None
+    emissao = next(
+        (
+            formatada
+            for campo in ("dataEmissao", "dataOperacao", "data")
+            if (formatada := _data_brasileira(nota.get(campo)))
+        ),
+        None,
+    )
+    texto = f"Nota fiscal {numero}"
+    if emissao:
+        texto += f"\nEmitida em {emissao}"
+    return texto
 
 
 def titulo_do_card(pedido: dict[str, Any]) -> str:
@@ -77,6 +109,56 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
     return "\n".join(linhas)
 
 
+NOME_CHECKLIST = "Itens do pedido"
+
+
+def _quantidade(item: dict[str, Any]) -> float:
+    try:
+        return float(item.get("quantidade", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _chaves_do_item(item: dict[str, Any]) -> list[str]:
+    """Formas de reconhecer o mesmo produto no pedido e na nota fiscal."""
+    chaves = []
+    produto_id = (item.get("produto") or {}).get("id")
+    if produto_id:
+        chaves.append(f"produto:{produto_id}")
+    if item.get("codigo"):
+        chaves.append(f"codigo:{normalizar(str(item['codigo']))}")
+    if item.get("descricao"):
+        chaves.append(f"descricao:{normalizar(str(item['descricao']))}")
+    return chaves
+
+
+def quantidades_faturadas(notas: list[dict[str, Any]]) -> dict[str, float]:
+    """Soma, por produto, a quantidade que já saiu em nota fiscal."""
+    totais: dict[str, float] = {}
+    for nota in notas:
+        for item in nota.get("itens") or []:
+            quantidade = _quantidade(item)
+            for chave in _chaves_do_item(item):
+                totais[chave] = totais.get(chave, 0.0) + quantidade
+    return totais
+
+
+def itens_do_checklist(
+    pedido: dict[str, Any], faturadas: dict[str, float] | None = None
+) -> list[tuple[str, bool]]:
+    """Um item de checklist por produto do pedido, marcado quando já foi todo faturado."""
+    faturadas = faturadas or {}
+    itens = []
+    for item in pedido.get("itens") or []:
+        quantidade = _quantidade(item)
+        codigo = item.get("codigo") or ""
+        descricao = item.get("descricao") or ""
+        nome = f"{quantidade:g} x {codigo} {descricao}".replace("  ", " ").strip()
+        faturada = max((faturadas.get(chave, 0.0) for chave in _chaves_do_item(item)), default=0.0)
+        itens.append((nome, quantidade > 0 and faturada + 1e-6 >= quantidade))
+    return itens
+
+
 @dataclass
 class ResultadoSync:
     pedido_id: int
@@ -88,12 +170,15 @@ class ResultadoSync:
 @dataclass
 class ResumoExecucao:
     pedidos_encontrados: int = 0
+    pedidos_ignorados: int = 0
     cards_criados: int = 0
     cards_atualizados: int = 0
     erros: list[tuple[int, str]] = field(default_factory=list)
 
     def registrar(self, resultado: ResultadoSync) -> None:
-        if resultado.acao == "card_criado":
+        if resultado.acao == "ignorado":
+            self.pedidos_ignorados += 1
+        elif resultado.acao == "card_criado":
             self.cards_criados += 1
         elif resultado.acao == "card_atualizado":
             self.cards_atualizados += 1
@@ -113,6 +198,8 @@ class Sincronizador:
         self.trello = trello
         self._cache_situacoes: dict[int, str] = {}
         self._situacoes_indisponiveis = False
+        self._listas_por_nome: dict[str, str] | None = None
+        self._notas_indisponiveis = False
 
     def _nome_situacao(self, situacao_id: int | None, pedido: dict[str, Any]) -> str | None:
         """Nome da situação: mapa do .env, depois o próprio pedido e, por fim, a API do Bling."""
@@ -138,14 +225,88 @@ class Sincronizador:
                 return None
         return self._cache_situacoes[situacao_id] or None
 
+    def _id_da_lista(self, valor: str) -> str:
+        """Aceita tanto o id da lista quanto o nome dela, como aparece no quadro."""
+        if self._listas_por_nome is None:
+            self._listas_por_nome = {
+                normalizar(lista["name"]): lista["id"]
+                for lista in self.trello.listar_listas(self.settings.trello_board_id)
+            }
+        return self._listas_por_nome.get(normalizar(valor), valor)
+
+    def _notas_do_pedido(self, pedido: dict[str, Any]) -> list[dict[str, Any]]:
+        """Notas fiscais ligadas ao pedido; sem o escopo de Notas Fiscais, devolve vazio."""
+        ids = []
+        nota = pedido.get("notaFiscal") or {}
+        if nota.get("id"):
+            ids.append(int(nota["id"]))
+        for outra in pedido.get("notasFiscais") or []:
+            if outra.get("id") and int(outra["id"]) not in ids:
+                ids.append(int(outra["id"]))
+        if not ids or self._notas_indisponiveis:
+            return []
+        notas = []
+        for nota_id in ids:
+            try:
+                nota = self.bling.obter_nota_fiscal(nota_id)
+                nota.setdefault("id", nota_id)
+                notas.append(nota)
+            except Exception:  # noqa: BLE001 - marcar o checklist é opcional
+                self._notas_indisponiveis = True
+                logger.warning(
+                    "Sem acesso às notas fiscais do Bling; "
+                    "adicione o escopo de Notas Fiscais ao aplicativo e rode 'autorizar' de novo"
+                )
+                return []
+        return notas
+
+    def _comentar_notas(self, pedido_id: int, card_id: str, notas: list[dict[str, Any]]) -> None:
+        """Comenta número e data de cada nota fiscal do pedido, uma única vez por nota."""
+        for nota in notas:
+            texto = comentario_da_nota(nota)
+            nota_id = nota.get("id")
+            if not texto or not nota_id:
+                continue
+            if self.storage.registrar_nota_comentada(pedido_id, int(nota_id)):
+                self.trello.comentar(card_id, texto)
+
+    def _sincronizar_checklist(self, card_id: str, itens: list[tuple[str, bool]]) -> None:
+        """Mantém o checklist igual aos produtos do pedido, preservando os itens já marcados."""
+        if not itens:
+            return
+        checklist = next(
+            (c for c in self.trello.listar_checklists(card_id) if c.get("name") == NOME_CHECKLIST),
+            None,
+        )
+        if checklist is None:
+            checklist = self.trello.criar_checklist(card_id, NOME_CHECKLIST)
+
+        existentes = {item.get("name"): item for item in checklist.get("checkItems") or []}
+        nomes = {nome for nome, _ in itens}
+        for nome, faturado in itens:
+            atual = existentes.get(nome)
+            if atual is None:
+                self.trello.criar_item_checklist(checklist["id"], nome, faturado)
+            elif faturado and atual.get("state") != "complete":
+                self.trello.marcar_item_checklist(card_id, atual["id"])
+        for nome, item in existentes.items():
+            if nome not in nomes:
+                self.trello.remover_item_checklist(checklist["id"], item["id"])
+
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
+        loja_id = (pedido.get("loja") or {}).get("id")
+        if not self.settings.loja_sincronizavel(loja_id):
+            logger.info("Pedido %s ignorado: loja %s fora do filtro", pedido_id, loja_id)
+            return ResultadoSync(pedido_id, "ignorado")
         situacao_id = (pedido.get("situacao") or {}).get("id")
         nome_situacao = self._nome_situacao(situacao_id, pedido)
-        id_list = self.settings.lista_para_situacao(situacao_id)
+        id_list = self._id_da_lista(self.settings.lista_para_situacao(situacao_id, nome_situacao))
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
         due = _data_para_trello(pedido.get("dataPrevista"))
+        notas = self._notas_do_pedido(pedido)
+        itens = itens_do_checklist(pedido, quantidades_faturadas(notas))
 
         existente = self.storage.obter_card(pedido_id)
         if existente is not None:
@@ -175,10 +336,14 @@ class Sincronizador:
                 id_labels=self.settings.trello_label_ids,
             )
             self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
+            self._sincronizar_checklist(card["id"], itens)
+            self._comentar_notas(pedido_id, card["id"], notas)
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
+        self._sincronizar_checklist(card["id"], itens)
+        self._comentar_notas(pedido_id, card["id"], notas)
         if existente.situacao_id != situacao_id and situacao_id is not None:
             self.trello.comentar(
                 existente.card_id,
@@ -213,6 +378,10 @@ class Sincronizador:
             for pedido in pedidos:
                 pedido_id = int(pedido["id"])
                 resumo.pedidos_encontrados += 1
+                loja_id = (pedido.get("loja") or {}).get("id")
+                if loja_id is not None and not self.settings.loja_sincronizavel(loja_id):
+                    resumo.pedidos_ignorados += 1
+                    continue
                 try:
                     resumo.registrar(self.sincronizar_pedido(pedido_id))
                 except Exception as erro:  # noqa: BLE001 - um pedido com erro não para a execução

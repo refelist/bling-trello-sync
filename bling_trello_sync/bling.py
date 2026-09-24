@@ -101,6 +101,9 @@ class BlingClient:
     def obter_pedido_venda(self, pedido_id: int) -> dict[str, Any]:
         return self._get(f"/pedidos/vendas/{pedido_id}")["data"]
 
+    def obter_nota_fiscal(self, nota_fiscal_id: int) -> dict[str, Any]:
+        return self._get(f"/nfe/{nota_fiscal_id}")["data"]
+
     def obter_situacao(self, situacao_id: int) -> dict[str, Any]:
         return self._get(f"/situacoes/{situacao_id}")["data"]
 
@@ -119,8 +122,11 @@ class BlingClient:
         data_alteracao_inicial: str | None = None,
         data_alteracao_final: str | None = None,
         ids_situacoes: list[int] | None = None,
+        numero: int | None = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"pagina": pagina, "limite": limite}
+        if numero is not None:
+            params["numero"] = numero
         if data_inicial:
             params["dataInicial"] = data_inicial
         if data_final:

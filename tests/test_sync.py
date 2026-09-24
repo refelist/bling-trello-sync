@@ -4,6 +4,7 @@ from bling_trello_sync.storage import Storage
 from bling_trello_sync.sync import (
     Sincronizador,
     _data_para_trello,
+    comentario_da_nota,
     descricao_do_card,
     titulo_do_card,
 )
@@ -15,6 +16,10 @@ class BlingFake:
         self.pedido = pedido
         self.filtros: list[dict] = []
         self.paginas: list[list[dict]] = []
+        self.notas: dict[int, dict] = {}
+
+    def obter_nota_fiscal(self, nota_fiscal_id: int) -> dict:
+        return self.notas[nota_fiscal_id]
 
     def obter_pedido_venda(self, pedido_id: int) -> dict:
         return self.pedido
@@ -34,6 +39,10 @@ class TrelloFake:
         self.criados: list[dict] = []
         self.atualizados: list[dict] = []
         self.comentarios: list[tuple[str, str]] = []
+        self.checklists: dict[str, list[dict]] = {}
+        self.itens_criados: list[tuple[str, str]] = []
+        self.itens_removidos: list[tuple[str, str]] = []
+        self.itens_marcados: list[tuple[str, str]] = []
 
     def criar_card(self, id_list, nome, descricao, due=None, id_labels=None):
         card = {"id": "card-1", "shortUrl": "https://trello.com/c/abc", "idList": id_list, "name": nome}
@@ -45,6 +54,52 @@ class TrelloFake:
             {"id": card_id, "name": nome, "idList": id_list, "due": due, "closed": closed}
         )
         return {"id": card_id, "shortUrl": "https://trello.com/c/abc"}
+
+    def listar_listas(self, board_id):
+        return [
+            {"id": "lista-entrada", "name": "PEDIDO EM ABERTO"},
+            {"id": "lista-transito", "name": "EM TRANSITO"},
+            {"id": "lista-cancelados", "name": "CANCELADOS"},
+        ]
+
+    def listar_checklists(self, card_id):
+        return self.checklists.get(card_id, [])
+
+    def criar_checklist(self, card_id, nome):
+        checklist = {"id": f"chk-{len(self.checklists) + 1}", "name": nome, "checkItems": []}
+        self.checklists.setdefault(card_id, []).append(checklist)
+        return checklist
+
+    def criar_item_checklist(self, checklist_id, nome, marcado=False):
+        item = {
+            "id": f"{checklist_id}-item-{len(self.itens_criados) + 1}",
+            "name": nome,
+            "state": "complete" if marcado else "incomplete",
+        }
+        self.itens_criados.append((checklist_id, nome))
+        for checklists in self.checklists.values():
+            for checklist in checklists:
+                if checklist["id"] == checklist_id:
+                    checklist["checkItems"].append(item)
+        return item
+
+    def marcar_item_checklist(self, card_id, item_id):
+        self.itens_marcados.append((card_id, item_id))
+        for checklist in self.checklists.get(card_id, []):
+            for item in checklist["checkItems"]:
+                if item["id"] == item_id:
+                    item["state"] = "complete"
+        return {}
+
+    def remover_item_checklist(self, checklist_id, item_id):
+        self.itens_removidos.append((checklist_id, item_id))
+        for checklists in self.checklists.values():
+            for checklist in checklists:
+                if checklist["id"] == checklist_id:
+                    checklist["checkItems"] = [
+                        item for item in checklist["checkItems"] if item["id"] != item_id
+                    ]
+        return {}
 
     def comentar(self, card_id, texto):
         self.comentarios.append((card_id, texto))
@@ -202,3 +257,129 @@ def test_recria_card_apagado_no_trello(settings, pedido):
     assert resultado.acao == "card_criado"
     assert len(trello.criados) == 2
     assert storage.obter_card(12345678).card_id == "card-1"
+
+
+def test_ignora_pedido_de_loja_excluida(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    pedido["loja"] = {"id": 203}
+    sincronizador, storage, trello, _bling = _sincronizador(settings, pedido)
+
+    resultado = sincronizador.sincronizar_pedido(12345678)
+
+    assert resultado.acao == "ignorado"
+    assert trello.criados == []
+    assert storage.obter_card(12345678) is None
+
+
+def test_lojas_permitidas_tem_prioridade(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    settings.lojas_permitidas = ["203"]
+    pedido["loja"] = {"id": 203}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    assert sincronizador.sincronizar_pedido(12345678).acao == "card_criado"
+    assert len(trello.criados) == 1
+
+
+def test_lote_pula_loja_excluida_sem_consultar_o_pedido(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.paginas = [[{"id": 1, "loja": {"id": 203}}, {"id": 2, "loja": {"id": 1}}]]
+
+    resumo = sincronizador.sincronizar_lote()
+
+    assert resumo.pedidos_ignorados == 1
+    assert resumo.cards_criados == 1
+    assert len(trello.criados) == 1
+
+
+def test_checklist_com_um_item_por_produto(settings, pedido):
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.itens_criados == [("chk-1", "2 x BLG-5 Produto do Bling")]
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "incomplete"
+
+
+def test_item_totalmente_faturado_nasce_marcado(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 2}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "complete"
+
+
+def test_item_parcialmente_faturado_continua_desmarcado(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 1}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.checklists["card-1"][0]["checkItems"][0]["state"] == "incomplete"
+
+
+def test_comentario_da_nota():
+    assert comentario_da_nota({"numero": "1234", "dataEmissao": "2026-09-16 10:20:30"}) == (
+        "Nota fiscal 1234\nEmitida em 16/09/2026"
+    )
+    assert comentario_da_nota({"dataEmissao": "2026-09-16"}) is None
+
+
+def test_comenta_nota_fiscal_uma_vez_por_nota(settings, pedido):
+    pedido["notaFiscal"] = {"id": 77}
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.notas[77] = {"id": 77, "numero": "1234", "dataEmissao": "2026-09-16 10:20:30", "itens": []}
+
+    sincronizador.sincronizar_pedido(12345678)
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.comentarios == [("card-1", "Nota fiscal 1234\nEmitida em 16/09/2026")]
+
+
+def test_item_existente_e_marcado_quando_faturado_depois(settings, pedido):
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    sincronizador.sincronizar_pedido(12345678)
+    pedido["notaFiscal"] = {"id": 77}
+    bling.notas[77] = {"itens": [{"codigo": "BLG-5", "descricao": "Produto do Bling", "quantidade": 2}]}
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.itens_marcados == [("card-1", "chk-1-item-1")]
+
+
+def test_checklist_reaproveitado_e_ajustado_na_atualizacao(settings, pedido):
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+    sincronizador.sincronizar_pedido(12345678)
+    pedido["itens"] = [{"codigo": "BLG-9", "descricao": "Outro produto", "quantidade": 1, "valor": 10.0}]
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert len(trello.checklists["card-1"]) == 1
+    assert [item["name"] for item in trello.checklists["card-1"][0]["checkItems"]] == [
+        "1 x BLG-9 Outro produto"
+    ]
+    assert trello.itens_removidos == [("chk-1", "chk-1-item-1")]
+
+
+def test_mapa_por_nome_de_situacao_e_de_lista(settings, pedido):
+    settings.trello_list_id_por_situacao = {"Atendido": "EM TRANSITO"}
+    settings.nomes_situacoes = {"9": "Atendido"}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.criados[0]["idList"] == "lista-transito"
+
+
+def test_nome_de_situacao_ignora_acento_e_caixa(settings, pedido):
+    settings.trello_list_id_por_situacao = {"em digitação": "pedido em aberto"}
+    settings.nomes_situacoes = {"9": "Em Digitacao"}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.criados[0]["idList"] == "lista-entrada"

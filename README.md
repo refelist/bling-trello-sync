@@ -6,8 +6,10 @@ Cada execução:
 
 1. busca os pedidos alterados desde a última execução (ou no período que você informar);
 2. cria um card para o pedido que ainda não tem card, na lista correspondente à situação;
-3. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
-4. guarda o momento da execução para que a próxima continue de onde parou.
+3. cria no card um checklist "Itens do pedido", com um item por produto, marcando automaticamente os produtos já faturados nas notas fiscais do pedido (os itens marcados à mão são preservados nas execuções seguintes);
+4. comenta no card o número e a data de emissão de cada nota fiscal do pedido (uma vez por nota);
+5. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
+6. guarda o momento da execução para que a próxima continue de onde parou.
 
 O vínculo `pedido → card` fica em um banco SQLite local, então um pedido nunca vira dois cards.
 
@@ -24,7 +26,7 @@ cp .env.example .env    # preencha as credenciais
 ### 1. Aplicativo no Bling
 
 1. No Bling: **Central de Extensões → Área do Integrador → Criar aplicativo**.
-2. Escopo: **Pedidos de Venda**. O módulo **Situações** nem sempre está disponível na lista de escopos; sem ele o card mostra o id da situação, a menos que você preencha `NOMES_SITUACOES`.
+2. Escopos: **Pedidos de Venda** e **Notas Fiscais** (esse último é o que permite marcar no checklist os produtos já faturados; sem ele o checklist funciona, mas nada é marcado automaticamente). O módulo **Situações** nem sempre está disponível na lista de escopos; sem ele o card mostra o id da situação, a menos que você preencha `NOMES_SITUACOES`.
 3. Link de redirecionamento: `http://localhost:8000/callback` (o mesmo valor de `BLING_REDIRECT_URI`).
 4. Copie o **Client Id** e o **Client Secret** para o `.env`.
 
@@ -48,11 +50,28 @@ O comando mostra uma URL; abra no navegador, autorize e pronto — os tokens fic
 python -m bling_trello_sync.cli listas-trello                    # IDs das listas do board
 python -m bling_trello_sync.cli modulos-bling                    # módulos de situação do Bling
 python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>   # situações do módulo de vendas
+python -m bling_trello_sync.cli situacoes-pedidos               # ids de situação vistos nos pedidos
 ```
 
-Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env` com o JSON `"id da situação": "id da lista"`. Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env`. A chave pode ser o id **ou** o nome da situação; o valor, o id **ou** o nome da lista (acentos e maiúsculas não importam):
 
-Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), os ids aparecem no log da sincronização e nos cards; use `NOMES_SITUACOES` no `.env` para dar nome a eles: `{"9":"Em aberto","12":"Atendido"}`.
+```json
+{"6":"PEDIDO EM ABERTO","21":"PEDIDO EM ABERTO","9":"EM TRANSITO","12":"CANCELADOS"}
+```
+
+Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+
+Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), use `situacoes-pedidos` para ver os ids junto de números de pedido de exemplo e confira no Bling a qual situação cada um corresponde; `NOMES_SITUACOES` no `.env` dá nome a eles nos cards: `{"9":"Em aberto","12":"Atendido"}`.
+
+### 5. Filtrar por loja (opcional)
+
+Pedidos vindos de marketplaces chegam com a loja da integração. Para deixá-los de fora:
+
+```bash
+python -m bling_trello_sync.cli lojas-bling            # ids de loja dos pedidos dos últimos 30 dias
+```
+
+No `.env`, `LOJAS_IGNORADAS=123,456` pula essas lojas; `LOJAS_PERMITIDAS=789` sincroniza apenas as listadas (e tem prioridade sobre a outra).
 
 ## Uso
 
