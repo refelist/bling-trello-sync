@@ -1,5 +1,12 @@
+import pytest
+
 from bling_trello_sync.storage import Storage
-from bling_trello_sync.sync import Sincronizador, descricao_do_card, titulo_do_card
+from bling_trello_sync.sync import (
+    Sincronizador,
+    _data_para_trello,
+    descricao_do_card,
+    titulo_do_card,
+)
 
 
 class BlingFake:
@@ -65,7 +72,7 @@ def test_cria_card_na_lista_da_situacao(settings, pedido):
 
     assert resultado.acao == "card_criado"
     assert trello.criados[0]["idList"] == "lista-atendido"
-    assert trello.criados[0]["due"] == "2026-01-20"
+    assert trello.criados[0]["due"] == "2026-01-20T00:00:00.000Z"
     assert storage.obter_card(12345678).card_id == "card-1"
 
 
@@ -133,3 +140,17 @@ def test_sincronizar_lote_registra_erro_e_continua(settings, pedido):
 
     assert resumo.erros == [(1, "500 do Bling")]
     assert resumo.cards_criados == 1
+
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"),
+    [
+        ("2026-09-30", "2026-09-30T00:00:00.000Z"),
+        ("2026-09-30 14:05:00", "2026-09-30T14:05:00.000Z"),
+        ("0000-00-00", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_data_para_trello(valor, esperado):
+    assert _data_para_trello(valor) == esperado

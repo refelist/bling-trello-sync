@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any
 
 from .bling import BlingClient
@@ -15,6 +16,22 @@ def _moeda(valor: Any) -> str:
         return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except (TypeError, ValueError):
         return "-"
+
+
+def _data_para_trello(valor: Any) -> str | None:
+    """Converte a data do Bling para ISO-8601; datas ausentes ou zeradas viram None."""
+    if not isinstance(valor, str) or not valor.strip():
+        return None
+    texto = valor.strip()
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            momento = datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+        if momento.date() == date(1, 1, 1):
+            return None
+        return momento.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return None
 
 
 def titulo_do_card(pedido: dict[str, Any]) -> str:
@@ -111,7 +128,7 @@ class Sincronizador:
         id_list = self.settings.lista_para_situacao(situacao_id)
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
-        due = pedido.get("dataPrevista") or None
+        due = _data_para_trello(pedido.get("dataPrevista"))
 
         existente = self.storage.obter_card(pedido_id)
         if existente is None:
