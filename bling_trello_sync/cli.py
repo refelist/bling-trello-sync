@@ -1,6 +1,7 @@
 """Linha de comando da integração: a sincronização acontece quando este programa é executado."""
 
 import argparse
+import json
 import logging
 from collections import Counter
 from datetime import datetime, timedelta
@@ -65,6 +66,10 @@ def _construir_parser() -> argparse.ArgumentParser:
 
     p_pedido = sub.add_parser("sincronizar-pedido", help="Sincroniza um único pedido pelo ID do Bling")
     p_pedido.add_argument("pedido_id", type=int)
+
+    p_json = sub.add_parser("pedido-json", help="Mostra o JSON que o Bling devolve para um pedido")
+    p_json.add_argument("pedido_id", type=int)
+    p_json.add_argument("--numero", action="store_true", help="Trata o argumento como número do pedido")
 
     sub.add_parser("listas-trello", help="Lista os IDs das listas do board configurado")
     sub.add_parser("labels-trello", help="Lista os IDs das etiquetas do board configurado")
@@ -173,6 +178,16 @@ def _comando_lojas(args: argparse.Namespace, bling: BlingClient) -> None:
         print(f"  {chave}  {total} pedidos  (ex.: {', '.join(exemplos[chave])})")
 
 
+def _comando_pedido_json(args: argparse.Namespace, bling: BlingClient) -> None:
+    pedido_id = args.pedido_id
+    if args.numero:
+        encontrados = bling.listar_pedidos_vendas(pagina=1, numero=args.pedido_id)
+        if not encontrados:
+            raise SystemExit(f"Nenhum pedido com número {args.pedido_id}.")
+        pedido_id = int(encontrados[0]["id"])
+    print(json.dumps(bling.obter_pedido_venda(pedido_id), indent=2, ensure_ascii=False))
+
+
 def _comando_situacoes_pedidos(args: argparse.Namespace, bling: BlingClient) -> None:
     inicial = (datetime.now() - timedelta(days=args.dias)).strftime(FORMATO_DATA)
     totais: Counter[str] = Counter()
@@ -222,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "modulos-bling":
         for modulo in bling.listar_modulos_situacoes():
             print(f"{modulo.get('id')}  {modulo.get('nome')}")
+    elif args.comando == "pedido-json":
+        _comando_pedido_json(args, bling)
     elif args.comando == "situacoes-pedidos":
         _comando_situacoes_pedidos(args, bling)
     elif args.comando == "situacoes-bling":
