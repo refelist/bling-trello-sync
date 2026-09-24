@@ -202,3 +202,37 @@ def test_recria_card_apagado_no_trello(settings, pedido):
     assert resultado.acao == "card_criado"
     assert len(trello.criados) == 2
     assert storage.obter_card(12345678).card_id == "card-1"
+
+
+def test_ignora_pedido_de_loja_excluida(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    pedido["loja"] = {"id": 203}
+    sincronizador, storage, trello, _bling = _sincronizador(settings, pedido)
+
+    resultado = sincronizador.sincronizar_pedido(12345678)
+
+    assert resultado.acao == "ignorado"
+    assert trello.criados == []
+    assert storage.obter_card(12345678) is None
+
+
+def test_lojas_permitidas_tem_prioridade(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    settings.lojas_permitidas = ["203"]
+    pedido["loja"] = {"id": 203}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    assert sincronizador.sincronizar_pedido(12345678).acao == "card_criado"
+    assert len(trello.criados) == 1
+
+
+def test_lote_pula_loja_excluida_sem_consultar_o_pedido(settings, pedido):
+    settings.lojas_ignoradas = ["203"]
+    sincronizador, _, trello, bling = _sincronizador(settings, pedido)
+    bling.paginas = [[{"id": 1, "loja": {"id": 203}}, {"id": 2, "loja": {"id": 1}}]]
+
+    resumo = sincronizador.sincronizar_lote()
+
+    assert resumo.pedidos_ignorados == 1
+    assert resumo.cards_criados == 1
+    assert len(trello.criados) == 1

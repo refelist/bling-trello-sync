@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     nomes_situacoes: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
 
+    lojas_ignoradas: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    lojas_permitidas: Annotated[list[str], NoDecode] = Field(default_factory=list)
+
     database_path: str = "bling_trello_sync.db"
 
     @field_validator("trello_list_id_por_situacao", "nomes_situacoes", mode="before")
@@ -37,7 +40,7 @@ class Settings(BaseSettings):
             return json.loads(valor)
         return valor
 
-    @field_validator("trello_label_ids", mode="before")
+    @field_validator("trello_label_ids", "lojas_ignoradas", "lojas_permitidas", mode="before")
     @classmethod
     def _parse_labels(cls, valor: Any) -> Any:
         if isinstance(valor, str):
@@ -46,7 +49,16 @@ class Settings(BaseSettings):
             if valor.strip().startswith("["):
                 return json.loads(valor)
             return [item.strip() for item in valor.split(",") if item.strip()]
+        if isinstance(valor, list):
+            return [str(item).strip() for item in valor if str(item).strip()]
         return valor
+
+    def loja_sincronizavel(self, loja_id: Any) -> bool:
+        """Aplica a lista de lojas permitidas e a de ignoradas; sem configuração, tudo passa."""
+        identificador = str(loja_id) if loja_id is not None else ""
+        if self.lojas_permitidas:
+            return identificador in self.lojas_permitidas
+        return identificador not in self.lojas_ignoradas
 
     def nome_para_situacao(self, situacao_id: int | None) -> str | None:
         if situacao_id is None:

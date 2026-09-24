@@ -88,12 +88,15 @@ class ResultadoSync:
 @dataclass
 class ResumoExecucao:
     pedidos_encontrados: int = 0
+    pedidos_ignorados: int = 0
     cards_criados: int = 0
     cards_atualizados: int = 0
     erros: list[tuple[int, str]] = field(default_factory=list)
 
     def registrar(self, resultado: ResultadoSync) -> None:
-        if resultado.acao == "card_criado":
+        if resultado.acao == "ignorado":
+            self.pedidos_ignorados += 1
+        elif resultado.acao == "card_criado":
             self.cards_criados += 1
         elif resultado.acao == "card_atualizado":
             self.cards_atualizados += 1
@@ -140,6 +143,10 @@ class Sincronizador:
 
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
+        loja_id = (pedido.get("loja") or {}).get("id")
+        if not self.settings.loja_sincronizavel(loja_id):
+            logger.info("Pedido %s ignorado: loja %s fora do filtro", pedido_id, loja_id)
+            return ResultadoSync(pedido_id, "ignorado")
         situacao_id = (pedido.get("situacao") or {}).get("id")
         nome_situacao = self._nome_situacao(situacao_id, pedido)
         id_list = self.settings.lista_para_situacao(situacao_id)
@@ -213,6 +220,10 @@ class Sincronizador:
             for pedido in pedidos:
                 pedido_id = int(pedido["id"])
                 resumo.pedidos_encontrados += 1
+                loja_id = (pedido.get("loja") or {}).get("id")
+                if loja_id is not None and not self.settings.loja_sincronizavel(loja_id):
+                    resumo.pedidos_ignorados += 1
+                    continue
                 try:
                     resumo.registrar(self.sincronizar_pedido(pedido_id))
                 except Exception as erro:  # noqa: BLE001 - um pedido com erro não para a execução

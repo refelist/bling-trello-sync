@@ -54,6 +54,16 @@ Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env` com o JSON `"id da situação":
 
 Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), os ids aparecem no log da sincronização e nos cards; use `NOMES_SITUACOES` no `.env` para dar nome a eles: `{"9":"Em aberto","12":"Atendido"}`.
 
+### 5. Filtrar por loja (opcional)
+
+Pedidos vindos de marketplaces chegam com a loja da integração. Para deixá-los de fora:
+
+```bash
+python -m bling_trello_sync.cli lojas-bling            # ids de loja dos pedidos dos últimos 30 dias
+```
+
+No `.env`, `LOJAS_IGNORADAS=123,456` pula essas lojas; `LOJAS_PERMITIDAS=789` sincroniza apenas as listadas (e tem prioridade sobre a outra).
+
 ## Uso
 
 ```bash
