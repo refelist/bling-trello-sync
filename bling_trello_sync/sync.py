@@ -6,7 +6,7 @@ from typing import Any
 from .bling import BlingClient
 from .config import Settings
 from .storage import Storage
-from .trello import TrelloClient
+from .trello import CardNaoEncontrado, TrelloClient
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,24 @@ class Sincronizador:
         due = _data_para_trello(pedido.get("dataPrevista"))
 
         existente = self.storage.obter_card(pedido_id)
+        if existente is not None:
+            try:
+                card = self.trello.atualizar_card(
+                    existente.card_id,
+                    nome=nome,
+                    descricao=descricao,
+                    id_list=id_list,
+                    due=due,
+                    closed=False,
+                )
+            except CardNaoEncontrado:
+                logger.warning(
+                    "Card %s do pedido %s não existe mais no Trello; criando outro",
+                    existente.card_id,
+                    pedido_id,
+                )
+                existente = None
+
         if existente is None:
             card = self.trello.criar_card(
                 id_list=id_list,
@@ -160,14 +178,6 @@ class Sincronizador:
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
-        card = self.trello.atualizar_card(
-            existente.card_id,
-            nome=nome,
-            descricao=descricao,
-            id_list=id_list,
-            due=due,
-            closed=False,
-        )
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
         if existente.situacao_id != situacao_id and situacao_id is not None:
             self.trello.comentar(

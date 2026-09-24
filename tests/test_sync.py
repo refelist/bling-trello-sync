@@ -7,6 +7,7 @@ from bling_trello_sync.sync import (
     descricao_do_card,
     titulo_do_card,
 )
+from bling_trello_sync.trello import CardNaoEncontrado
 
 
 class BlingFake:
@@ -185,3 +186,19 @@ def test_sem_acesso_as_situacoes_usa_o_id(settings, pedido):
 
     assert chamadas == [9]
     assert "**Situação:** 9" in trello.criados[0]["desc"]
+
+
+def test_recria_card_apagado_no_trello(settings, pedido):
+    sincronizador, storage, trello, _bling = _sincronizador(settings, pedido)
+    sincronizador.sincronizar_pedido(12345678)
+
+    def sumiu(*args, **kwargs):
+        raise CardNaoEncontrado("404 em PUT /cards/card-1: not found", 404)
+
+    trello.atualizar_card = sumiu
+
+    resultado = sincronizador.sincronizar_pedido(12345678)
+
+    assert resultado.acao == "card_criado"
+    assert len(trello.criados) == 2
+    assert storage.obter_card(12345678).card_id == "card-1"

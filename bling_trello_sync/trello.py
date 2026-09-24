@@ -10,6 +10,14 @@ LIMITE_DESCRICAO = 16384
 class TrelloError(RuntimeError):
     """Erro da API do Trello com o corpo da resposta, que traz o motivo da recusa."""
 
+    def __init__(self, mensagem: str, status_code: int) -> None:
+        super().__init__(mensagem)
+        self.status_code = status_code
+
+
+class CardNaoEncontrado(TrelloError):
+    """O card registrado localmente não existe mais no Trello."""
+
 
 class TrelloClient:
     def __init__(self, api_key: str, token: str, client: httpx.Client | None = None) -> None:
@@ -35,7 +43,10 @@ class TrelloClient:
             headers={"Accept": "application/json"},
         )
         if resposta.status_code >= 400:
-            raise TrelloError(f"{resposta.status_code} em {metodo} {caminho}: {resposta.text}")
+            mensagem = f"{resposta.status_code} em {metodo} {caminho}: {resposta.text}"
+            if resposta.status_code == 404:
+                raise CardNaoEncontrado(mensagem, resposta.status_code)
+            raise TrelloError(mensagem, resposta.status_code)
         return resposta.json()
 
     def listar_listas(self, board_id: str) -> list[dict[str, Any]]:
