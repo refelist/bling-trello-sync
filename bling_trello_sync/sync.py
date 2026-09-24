@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .bling import BlingClient
-from .config import Settings
+from .config import Settings, normalizar
 from .storage import Storage
 from .trello import CardNaoEncontrado, TrelloClient
 
@@ -134,6 +134,7 @@ class Sincronizador:
         self.trello = trello
         self._cache_situacoes: dict[int, str] = {}
         self._situacoes_indisponiveis = False
+        self._listas_por_nome: dict[str, str] | None = None
 
     def _nome_situacao(self, situacao_id: int | None, pedido: dict[str, Any]) -> str | None:
         """Nome da situação: mapa do .env, depois o próprio pedido e, por fim, a API do Bling."""
@@ -158,6 +159,15 @@ class Sincronizador:
                 )
                 return None
         return self._cache_situacoes[situacao_id] or None
+
+    def _id_da_lista(self, valor: str) -> str:
+        """Aceita tanto o id da lista quanto o nome dela, como aparece no quadro."""
+        if self._listas_por_nome is None:
+            self._listas_por_nome = {
+                normalizar(lista["name"]): lista["id"]
+                for lista in self.trello.listar_listas(self.settings.trello_board_id)
+            }
+        return self._listas_por_nome.get(normalizar(valor), valor)
 
     def _sincronizar_checklist(self, card_id: str, itens: list[str]) -> None:
         """Mantém o checklist igual aos produtos do pedido, preservando os itens já marcados."""
@@ -186,7 +196,7 @@ class Sincronizador:
             return ResultadoSync(pedido_id, "ignorado")
         situacao_id = (pedido.get("situacao") or {}).get("id")
         nome_situacao = self._nome_situacao(situacao_id, pedido)
-        id_list = self.settings.lista_para_situacao(situacao_id)
+        id_list = self._id_da_lista(self.settings.lista_para_situacao(situacao_id, nome_situacao))
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
         due = _data_para_trello(pedido.get("dataPrevista"))

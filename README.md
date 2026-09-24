@@ -49,11 +49,18 @@ O comando mostra uma URL; abra no navegador, autorize e pronto — os tokens fic
 python -m bling_trello_sync.cli listas-trello                    # IDs das listas do board
 python -m bling_trello_sync.cli modulos-bling                    # módulos de situação do Bling
 python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>   # situações do módulo de vendas
+python -m bling_trello_sync.cli situacoes-pedidos               # ids de situação vistos nos pedidos
 ```
 
-Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env` com o JSON `"id da situação": "id da lista"`. Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env`. A chave pode ser o id **ou** o nome da situação; o valor, o id **ou** o nome da lista (acentos e maiúsculas não importam):
 
-Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), os ids aparecem no log da sincronização e nos cards; use `NOMES_SITUACOES` no `.env` para dar nome a eles: `{"9":"Em aberto","12":"Atendido"}`.
+```json
+{"6":"PEDIDO EM ABERTO","21":"PEDIDO EM ABERTO","9":"EM TRANSITO","12":"CANCELADOS"}
+```
+
+Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+
+Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), use `situacoes-pedidos` para ver os ids junto de números de pedido de exemplo e confira no Bling a qual situação cada um corresponde; `NOMES_SITUACOES` no `.env` dá nome a eles nos cards: `{"9":"Em aberto","12":"Atendido"}`.
 
 ### 5. Filtrar por loja (opcional)
 

@@ -80,6 +80,13 @@ def _construir_parser() -> argparse.ArgumentParser:
     p_situacoes = sub.add_parser("situacoes-bling", help="Lista as situações de um módulo do Bling")
     p_situacoes.add_argument("id_modulo", type=int)
 
+    p_situacoes_pedidos = sub.add_parser(
+        "situacoes-pedidos",
+        help="Mostra os IDs de situação que aparecem nos pedidos recentes, com exemplos de número",
+    )
+    p_situacoes_pedidos.add_argument("--dias", type=int, default=30)
+    p_situacoes_pedidos.add_argument("--limite-paginas", type=int, default=5)
+
     return parser
 
 
@@ -166,6 +173,30 @@ def _comando_lojas(args: argparse.Namespace, bling: BlingClient) -> None:
         print(f"  {chave}  {total} pedidos  (ex.: {', '.join(exemplos[chave])})")
 
 
+def _comando_situacoes_pedidos(args: argparse.Namespace, bling: BlingClient) -> None:
+    inicial = (datetime.now() - timedelta(days=args.dias)).strftime(FORMATO_DATA)
+    totais: Counter[str] = Counter()
+    exemplos: dict[str, list[str]] = {}
+    for pagina in range(1, args.limite_paginas + 1):
+        pedidos = bling.listar_pedidos_vendas(pagina=pagina, data_inicial=inicial)
+        if not pedidos:
+            break
+        for pedido in pedidos:
+            situacao = pedido.get("situacao") or {}
+            chave = str(situacao.get("id", "(sem situação)"))
+            totais[chave] += 1
+            numeros = exemplos.setdefault(chave, [])
+            if len(numeros) < 3:
+                numeros.append(str(pedido.get("numero", pedido.get("id"))))
+
+    if not totais:
+        print(f"Nenhum pedido encontrado desde {inicial}.")
+        return
+    print(f"Situações nos pedidos desde {inicial} (use os IDs em TRELLO_LIST_ID_POR_SITUACAO):")
+    for chave, total in totais.most_common():
+        print(f"  {chave}  {total} pedidos  (ex.: {', '.join(exemplos[chave])})")
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _construir_parser().parse_args(argv)
@@ -191,6 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "modulos-bling":
         for modulo in bling.listar_modulos_situacoes():
             print(f"{modulo.get('id')}  {modulo.get('nome')}")
+    elif args.comando == "situacoes-pedidos":
+        _comando_situacoes_pedidos(args, bling)
     elif args.comando == "situacoes-bling":
         for situacao in bling.listar_situacoes_do_modulo(args.id_modulo):
             print(f"{situacao.get('id')}  {situacao.get('nome')}")

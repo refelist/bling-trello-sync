@@ -49,6 +49,13 @@ class TrelloFake:
         )
         return {"id": card_id, "shortUrl": "https://trello.com/c/abc"}
 
+    def listar_listas(self, board_id):
+        return [
+            {"id": "lista-entrada", "name": "PEDIDO EM ABERTO"},
+            {"id": "lista-transito", "name": "EM TRANSITO"},
+            {"id": "lista-cancelados", "name": "CANCELADOS"},
+        ]
+
     def listar_checklists(self, card_id):
         return self.checklists.get(card_id, [])
 
@@ -288,3 +295,23 @@ def test_checklist_reaproveitado_e_ajustado_na_atualizacao(settings, pedido):
         "1 x BLG-9 Outro produto"
     ]
     assert trello.itens_removidos == [("chk-1", "chk-1-item-1")]
+
+
+def test_mapa_por_nome_de_situacao_e_de_lista(settings, pedido):
+    settings.trello_list_id_por_situacao = {"Atendido": "EM TRANSITO"}
+    settings.nomes_situacoes = {"9": "Atendido"}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.criados[0]["idList"] == "lista-transito"
+
+
+def test_nome_de_situacao_ignora_acento_e_caixa(settings, pedido):
+    settings.trello_list_id_por_situacao = {"em digitação": "pedido em aberto"}
+    settings.nomes_situacoes = {"9": "Em Digitacao"}
+    sincronizador, _, trello, _bling = _sincronizador(settings, pedido)
+
+    sincronizador.sincronizar_pedido(12345678)
+
+    assert trello.criados[0]["idList"] == "lista-entrada"
