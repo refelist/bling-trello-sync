@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     bling_client_id: str
     bling_client_secret: str
-    bling_redirect_uri: str
+    bling_redirect_uri: str = "http://localhost:8000/callback"
     bling_api_base: str = "https://api.bling.com.br/Api/v3"
     bling_auth_base: str = "https://www.bling.com.br/Api/v3"
 
@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     trello_label_ids: list[str] = Field(default_factory=list)
 
     database_path: str = "bling_trello_sync.db"
-    verificar_assinatura_webhook: bool = True
 
     @field_validator("trello_list_id_por_situacao", mode="before")
     @classmethod

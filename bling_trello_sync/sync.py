@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .bling import BlingClient
@@ -65,6 +65,20 @@ class ResultadoSync:
     card_url: str | None = None
 
 
+@dataclass
+class ResumoExecucao:
+    pedidos_encontrados: int = 0
+    cards_criados: int = 0
+    cards_atualizados: int = 0
+    erros: list[tuple[int, str]] = field(default_factory=list)
+
+    def registrar(self, resultado: ResultadoSync) -> None:
+        if resultado.acao == "card_criado":
+            self.cards_criados += 1
+        elif resultado.acao == "card_atualizado":
+            self.cards_atualizados += 1
+
+
 class Sincronizador:
     def __init__(
         self,
@@ -90,10 +104,7 @@ class Sincronizador:
                 return None
         return self._cache_situacoes[situacao_id] or None
 
-    def sincronizar_pedido(self, pedido_id: int, acao: str = "updated") -> ResultadoSync:
-        if acao == "deleted":
-            return self._arquivar(pedido_id)
-
+    def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
         situacao_id = (pedido.get("situacao") or {}).get("id")
         nome_situacao = self._nome_situacao(situacao_id)
@@ -129,12 +140,37 @@ class Sincronizador:
         logger.info("Card atualizado para o pedido %s: %s", pedido_id, card["shortUrl"])
         return ResultadoSync(pedido_id, "card_atualizado", card["id"], card["shortUrl"])
 
-    def _arquivar(self, pedido_id: int) -> ResultadoSync:
-        existente = self.storage.obter_card(pedido_id)
-        if existente is None:
-            return ResultadoSync(pedido_id, "ignorado_sem_card")
-        self.trello.atualizar_card(existente.card_id, closed=True)
-        self.trello.comentar(existente.card_id, "Pedido excluído no Bling.")
-        self.storage.remover_card(pedido_id)
-        logger.info("Card arquivado para o pedido excluído %s", pedido_id)
-        return ResultadoSync(pedido_id, "card_arquivado", existente.card_id, existente.card_url)
+    def sincronizar_lote(
+        self,
+        data_alteracao_inicial: str | None = None,
+        data_alteracao_final: str | None = None,
+        data_inicial: str | None = None,
+        data_final: str | None = None,
+        ids_situacoes: list[int] | None = None,
+        limite_paginas: int = 100,
+    ) -> ResumoExecucao:
+        """Busca os pedidos de venda que atendem ao filtro e cria/atualiza os cards."""
+        resumo = ResumoExecucao()
+        pagina = 1
+        while pagina <= limite_paginas:
+            pedidos = self.bling.listar_pedidos_vendas(
+                pagina=pagina,
+                data_inicial=data_inicial,
+                data_final=data_final,
+                data_alteracao_inicial=data_alteracao_inicial,
+                data_alteracao_final=data_alteracao_final,
+                ids_situacoes=ids_situacoes,
+            )
+            if not pedidos:
+                break
+            for pedido in pedidos:
+                pedido_id = int(pedido["id"])
+                resumo.pedidos_encontrados += 1
+                try:
+                    resumo.registrar(self.sincronizar_pedido(pedido_id))
+                except Exception as erro:  # noqa: BLE001 - um pedido com erro não para a execução
+                    logger.exception("Falha ao sincronizar o pedido %s", pedido_id)
+                    resumo.erros.append((pedido_id, str(erro)))
+            pagina += 1
+        return resumo
+

@@ -1,1 +1,1 @@
-__all__ = ["bling", "config", "main", "storage", "sync", "trello"]
+__all__ = ["bling", "cli", "config", "oauth_local", "storage", "sync", "trello"]

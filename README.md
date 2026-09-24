@@ -1,71 +1,93 @@
 # bling-trello-sync
 
-Integração que escuta o webhook de **Pedido de Venda** do Bling (API v3) e cria/atualiza um **card no Trello** para cada pedido, em tempo real.
+Programa de linha de comando que lê os **pedidos de venda do Bling** (API v3) e cria/atualiza um **card no Trello** para cada pedido. A sincronização acontece **quando você roda o programa** — não há servidor nem webhook.
 
-- `order.created` → cria o card na lista correspondente à situação do pedido
-- `order.updated` → atualiza título/descrição/vencimento e move o card se a situação mudou (com um comentário registrando a mudança)
-- `order.deleted` → arquiva o card
+Cada execução:
 
-Cada pedido tem no máximo um card: o vínculo `pedido → card` fica em SQLite, junto com os `eventId` já processados (o Bling pode reenviar o mesmo evento).
+1. busca os pedidos alterados desde a última execução (ou no período que você informar);
+2. cria um card para o pedido que ainda não tem card, na lista correspondente à situação;
+3. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
+4. guarda o momento da execução para que a próxima continue de onde parou.
 
-## Como rodar
+O vínculo `pedido → card` fica em um banco SQLite local, então um pedido nunca vira dois cards.
+
+## Instalação
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env    # preencha as credenciais
-uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
 ```
-
-O serviço precisa estar publicado em uma URL HTTPS pública para o Bling entregar os webhooks (em desenvolvimento, use `ngrok http 8000`).
 
 ## Configuração
 
 ### 1. Aplicativo no Bling
 
 1. No Bling: **Central de Extensões → Área do Integrador → Criar aplicativo**.
-2. Escopo obrigatório: **Pedidos de Venda** (sem ele o recurso de webhook `order` nem aparece). Inclua também **Situações** se quiser o nome da situação no card.
-3. Link de redirecionamento: `https://SEU_DOMINIO/oauth/bling/callback`.
-4. Anote o **Client Id** e o **Client Secret** → `BLING_CLIENT_ID` / `BLING_CLIENT_SECRET`.
-5. Aba **Webhooks**: cadastre o servidor `https://SEU_DOMINIO/webhooks/bling` e marque o recurso **Pedido de Venda** com as ações `created`, `updated` e `deleted`.
+2. Escopos: **Pedidos de Venda** (obrigatório) e **Situações** (para o nome da situação aparecer no card).
+3. Link de redirecionamento: `http://localhost:8000/callback` (o mesmo valor de `BLING_REDIRECT_URI`).
+4. Copie o **Client Id** e o **Client Secret** para o `.env`.
 
 ### 2. Credenciais do Trello
 
 - API key: https://trello.com/power-ups/admin (crie um Power-Up e use a chave gerada) → `TRELLO_API_KEY`
-- Token: gere o token a partir da própria chave e autorize na sua conta → `TRELLO_TOKEN`
-- `TRELLO_BOARD_ID`: abra o board e acesse `https://trello.com/b/XXXX.json`, campo `id`.
+- Token: gere a partir dessa chave e autorize na sua conta → `TRELLO_TOKEN`
+- `TRELLO_BOARD_ID`: abra o board e acesse `https://trello.com/b/XXXX.json`, campo `id`
 
-### 3. Listas e mapeamento de situações
-
-Com o `.env` preenchido:
+### 3. Autorizar o Bling (uma única vez)
 
 ```bash
-python -m bling_trello_sync.cli listas-trello      # IDs das listas do board
-python -m bling_trello_sync.cli modulos-bling      # módulos de situação do Bling
-python -m bling_trello_sync.cli situacoes-bling <id_do_modulo_de_vendas>
+python -m bling_trello_sync.cli autorizar
 ```
 
-Monte o mapa em `TRELLO_LIST_ID_POR_SITUACAO` (JSON `"id da situação": "id da lista"`); qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+O comando mostra uma URL; abra no navegador, autorize e pronto — os tokens ficam salvos e são renovados sozinhos nas execuções seguintes.
 
-### 4. Autorizar o Bling
-
-Acesse `https://SEU_DOMINIO/oauth/bling/autorizar` no navegador e autorize. O `access_token` e o `refresh_token` ficam salvos no SQLite e são renovados automaticamente. Só depois dessa autorização o Bling começa a enviar eventos.
-
-## Endpoints
-
-| Método | Rota | Descrição |
-| --- | --- | --- |
-| `POST` | `/webhooks/bling` | Recebe os eventos (valida `X-Bling-Signature-256` e responde `202` em seguida, processando em background para respeitar o limite de 5s do Bling) |
-| `GET` | `/oauth/bling/autorizar` | Inicia o OAuth2 |
-| `GET` | `/oauth/bling/callback` | Recebe o `code` e grava os tokens |
-| `GET` | `/trello/listas` | Lista as listas do board (para montar o mapeamento) |
-| `POST` | `/sincronizar/{pedido_id}` | Sincroniza um pedido manualmente (reprocesso/teste) |
-| `GET` | `/healthz` | Health check |
-
-## Importar pedidos já existentes
+### 4. Mapear situações para listas
 
 ```bash
-python -m bling_trello_sync.cli backfill --data-inicial 2026-01-01 --data-final 2026-01-31
+python -m bling_trello_sync.cli listas-trello                    # IDs das listas do board
+python -m bling_trello_sync.cli modulos-bling                    # módulos de situação do Bling
+python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>   # situações do módulo de vendas
+```
+
+Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env` com o JSON `"id da situação": "id da lista"`. Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
+
+## Uso
+
+```bash
+# o caso normal: pedidos alterados desde a última execução
+python -m bling_trello_sync.cli sincronizar
+
+# últimos 7 dias, ignorando a última execução
+python -m bling_trello_sync.cli sincronizar --dias 7
+
+# período específico de alteração
+python -m bling_trello_sync.cli sincronizar --desde "2026-01-01 00:00:00" --ate "2026-01-31 23:59:59"
+
+# por data de emissão do pedido (carga inicial)
+python -m bling_trello_sync.cli sincronizar --data-inicial 2026-01-01 --data-final 2026-01-31
+
+# somente algumas situações
+python -m bling_trello_sync.cli sincronizar --situacoes 6,9
+
+# um pedido específico
+python -m bling_trello_sync.cli sincronizar-pedido 12345678
+```
+
+Saída de exemplo:
+
+```
+23 pedidos processados | 5 cards criados | 18 atualizados | 0 erros
+```
+
+Na primeira execução sem filtro, a janela considerada é a dos últimos 30 dias. Se algum pedido falhar, o erro é listado e o marcador da última execução **não** avança, para que a próxima rodada tente de novo.
+
+### Rodar automaticamente (opcional)
+
+Se um dia quiser periodicidade sem lembrar de executar, basta agendar o mesmo comando, por exemplo de hora em hora no cron:
+
+```
+0 * * * * cd /caminho/do/projeto && .venv/bin/python -m bling_trello_sync.cli sincronizar >> sync.log 2>&1
 ```
 
 ## Testes
