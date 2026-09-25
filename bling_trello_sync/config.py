@@ -38,6 +38,8 @@ class Settings(BaseSettings):
 
     database_path: str = "bling_trello_sync.db"
 
+    verificar_assinatura_webhook: bool = True
+
     @field_validator("trello_list_id_por_situacao", "nomes_situacoes", mode="before")
     @classmethod
     def _parse_mapa_situacoes(cls, valor: Any) -> Any:
