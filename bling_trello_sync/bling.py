@@ -10,6 +10,9 @@ import httpx
 from .config import Settings
 from .storage import Storage, TokenBling
 
+TENTATIVAS_LIMITE_TAXA = 5
+ESPERA_INICIAL_SEGUNDOS = 2.0
+
 
 class BlingAuthError(RuntimeError):
     pass
@@ -85,6 +88,15 @@ class BlingClient:
             token = self.renovar_token(token.refresh_token)
         return token.access_token
 
+    def _espera_do_limite(self, resposta: httpx.Response, tentativa: int) -> float:
+        cabecalho = resposta.headers.get("Retry-After")
+        if cabecalho:
+            try:
+                return float(cabecalho)
+            except ValueError:
+                pass
+        return ESPERA_INICIAL_SEGUNDOS * (2**tentativa)
+
     def _get(self, caminho: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self.settings.bling_api_base}{caminho}"
         headers = {"Authorization": f"Bearer {self._access_token()}", "Accept": "application/json"}
@@ -95,6 +107,11 @@ class BlingClient:
                 novo = self.renovar_token(token.refresh_token)
                 headers["Authorization"] = f"Bearer {novo.access_token}"
                 resposta = self._client.get(url, params=params, headers=headers)
+        for tentativa in range(TENTATIVAS_LIMITE_TAXA):
+            if resposta.status_code != 429:
+                break
+            time.sleep(self._espera_do_limite(resposta, tentativa))
+            resposta = self._client.get(url, params=params, headers=headers)
         resposta.raise_for_status()
         return resposta.json()
 
