@@ -108,6 +108,10 @@ def _janela_de_alteracao(args: argparse.Namespace, storage: Storage) -> tuple[st
     if args.data_inicial or args.data_final:
         return None, None
     if args.tudo:
+        if args.dias or args.desde or args.ate:
+            raise SystemExit(
+                "--tudo ignora qualquer período: use --tudo sozinho ou apenas --dias/--desde/--ate."
+            )
         return None, None
     if args.desde:
         inicio = _normalizar_momento(args.desde)
