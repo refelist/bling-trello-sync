@@ -1,8 +1,11 @@
 # bling-trello-sync
 
-Programa de linha de comando que lê os **pedidos de venda do Bling** (API v3) e cria/atualiza um **card no Trello** para cada pedido. A sincronização acontece **quando você roda o programa** — não há servidor nem webhook.
+Integração que lê os **pedidos de venda do Bling** (API v3) e cria/atualiza um **card no Trello** para cada pedido. Funciona de dois jeitos, com a mesma lógica de sincronização:
 
-Cada execução:
+- **linha de comando**: sincroniza quando você roda o comando (ou por cron);
+- **modo servidor** (`bling_trello_sync.main`): recebe o webhook do Bling e sincroniza o pedido no momento em que ele muda.
+
+Cada sincronização:
 
 1. busca os pedidos alterados desde a última execução (ou no período que você informar);
 2. cria um card para o pedido que ainda não tem card, na lista correspondente à situação;
@@ -110,6 +113,29 @@ Se um dia quiser periodicidade sem lembrar de executar, basta agendar o mesmo co
 ```
 0 * * * * cd /caminho/do/projeto && .venv/bin/python -m bling_trello_sync.cli sincronizar >> sync.log 2>&1
 ```
+
+## Modo servidor (webhook, tempo real)
+
+O serviço FastAPI em `bling_trello_sync/main.py` expõe:
+
+| Rota | Uso |
+|---|---|
+| `POST /webhooks/bling` | endereço a cadastrar no webhook do Bling |
+| `GET /healthz` | verificação de saúde |
+| `GET /oauth/bling/autorizar` e `GET /oauth/bling/callback` | autorização do Bling pelo navegador |
+| `GET /trello/listas` | listas do board, para montar o mapa de situações |
+| `POST /sincronizar/{pedido_id}` | sincroniza um pedido sob demanda |
+
+Rodar:
+
+```bash
+pip install -r requirements.txt
+uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
+```
+
+O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling).
+
+Cada evento é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. O `eventId` é guardado no banco, então um evento reenviado não é processado duas vezes, e a sincronização roda em segundo plano para responder ao Bling dentro do tempo limite.
 
 ## Testes
 

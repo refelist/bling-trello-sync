@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS nota_comentada (
     PRIMARY KEY (pedido_id, nota_id)
 );
 
+CREATE TABLE IF NOT EXISTS evento_processado (
+    event_id TEXT PRIMARY KEY,
+    processado_em REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS estado (
     chave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
@@ -116,6 +121,15 @@ class Storage:
                 "INSERT OR IGNORE INTO nota_comentada (pedido_id, nota_id, comentado_em) "
                 "VALUES (?, ?, ?)",
                 (pedido_id, nota_id, time.time()),
+            )
+            return cursor.rowcount > 0
+
+    def registrar_evento(self, event_id: str) -> bool:
+        """Grava o evento do webhook e devolve False se ele já tinha sido processado."""
+        with self._conexao() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO evento_processado (event_id, processado_em) VALUES (?, ?)",
+                (event_id, time.time()),
             )
             return cursor.rowcount > 0
 
