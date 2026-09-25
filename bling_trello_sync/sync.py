@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
+import httpx
+
 from .bling import BlingClient
 from .config import Settings, normalizar
 from .storage import Storage
@@ -251,13 +253,18 @@ class Sincronizador:
                 nota = self.bling.obter_nota_fiscal(nota_id)
                 nota.setdefault("id", nota_id)
                 notas.append(nota)
-            except Exception:  # noqa: BLE001 - marcar o checklist é opcional
-                self._notas_indisponiveis = True
-                logger.warning(
-                    "Sem acesso às notas fiscais do Bling; "
-                    "adicione o escopo de Notas Fiscais ao aplicativo e rode 'autorizar' de novo"
-                )
-                return []
+            except Exception as erro:  # noqa: BLE001 - marcar o checklist é opcional
+                if isinstance(erro, httpx.HTTPStatusError) and erro.response.status_code in (
+                    401,
+                    403,
+                ):
+                    self._notas_indisponiveis = True
+                    logger.warning(
+                        "Sem acesso às notas fiscais do Bling; "
+                        "adicione o escopo de Notas Fiscais ao aplicativo e rode 'autorizar' de novo"
+                    )
+                    return []
+                logger.warning("Falha ao buscar a nota fiscal %s: %s", nota_id, erro)
         return notas
 
     def _comentar_notas(self, pedido_id: int, card_id: str, notas: list[dict[str, Any]]) -> None:
