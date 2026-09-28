@@ -160,6 +160,7 @@ def test_lote_percorre_paginas(settings_compras, compra):
     assert resumo.pedidos_encontrados == 1
     assert resumo.cards_criados == 1
     assert bling.filtros[0]["data_inicial"] is not None
+    assert bling.filtros[0]["data_final"] is not None
 
 
 def test_usa_lista_padrao_para_situacao_desconhecida(settings_compras, compra):

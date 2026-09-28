@@ -222,6 +222,9 @@ class SincronizadorCompras:
         if data_inicial is None:
             janela = dias if dias is not None else self.settings.compras_dias
             data_inicial = (date.today() - timedelta(days=janela)).strftime("%Y-%m-%d")
+        if data_final is None:
+            # O Bling ignora o período quando recebe apenas a data inicial.
+            data_final = date.today().strftime("%Y-%m-%d")
         resumo = ResumoExecucao()
         pagina = 1
         while pagina <= limite_paginas:
