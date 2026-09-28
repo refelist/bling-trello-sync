@@ -138,6 +138,9 @@ class BlingClient:
             params["dataFinal"] = data_final
         return self._get("/pedidos/compras", params=params)["data"]
 
+    def obter_categoria_receita_despesa(self, categoria_id: int) -> dict[str, Any]:
+        return self._get(f"/categorias/receitas-despesas/{categoria_id}")["data"]
+
     def obter_contato(self, contato_id: int) -> dict[str, Any]:
         return self._get(f"/contatos/{contato_id}")["data"]
 

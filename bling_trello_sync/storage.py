@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -26,6 +27,14 @@ CREATE TABLE IF NOT EXISTS card_por_pedido_compra (
     card_url TEXT NOT NULL,
     situacao_id INTEGER,
     atualizado_em REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS comentario_compra (
+    pedido_id INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    conteudo_hash TEXT NOT NULL,
+    comentado_em REAL NOT NULL,
+    PRIMARY KEY (pedido_id, tipo)
 );
 
 CREATE TABLE IF NOT EXISTS nota_comentada (
@@ -144,6 +153,25 @@ class Storage:
         if linha is None:
             return None
         return CardPedido(linha["pedido_id"], linha["card_id"], linha["card_url"], linha["situacao_id"])
+
+    def registrar_comentario_compra(self, pedido_id: int, tipo: str, texto: str) -> bool:
+        """Devolve True quando o texto ainda não foi comentado nesse pedido de compra."""
+        conteudo_hash = hashlib.sha256(texto.encode("utf-8")).hexdigest()
+        with self._conexao() as conn:
+            linha = conn.execute(
+                "SELECT conteudo_hash FROM comentario_compra WHERE pedido_id = ? AND tipo = ?",
+                (pedido_id, tipo),
+            ).fetchone()
+            if linha is not None and linha["conteudo_hash"] == conteudo_hash:
+                return False
+            conn.execute(
+                "INSERT INTO comentario_compra (pedido_id, tipo, conteudo_hash, comentado_em) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(pedido_id, tipo) DO UPDATE SET conteudo_hash = excluded.conteudo_hash, "
+                "comentado_em = excluded.comentado_em",
+                (pedido_id, tipo, conteudo_hash, time.time()),
+            )
+        return True
 
     def registrar_nota_comentada(self, pedido_id: int, nota_id: int) -> bool:
         """Grava a nota e devolve True só na primeira vez, para não repetir o comentário."""
