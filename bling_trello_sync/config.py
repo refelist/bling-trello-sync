@@ -33,6 +33,15 @@ class Settings(BaseSettings):
 
     nomes_situacoes: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
 
+    compras_ativo: bool = False
+    compras_dias: int = 30
+    compras_intervalo_minutos: int = 5
+    trello_board_id_compras: str = ""
+    trello_list_id_padrao_compras: str = ""
+    trello_list_id_por_situacao_compra: Annotated[dict[str, str], NoDecode] = Field(
+        default_factory=dict
+    )
+
     lojas_ignoradas: Annotated[list[str], NoDecode] = Field(default_factory=list)
     lojas_permitidas: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
@@ -40,7 +49,12 @@ class Settings(BaseSettings):
 
     verificar_assinatura_webhook: bool = True
 
-    @field_validator("trello_list_id_por_situacao", "nomes_situacoes", mode="before")
+    @field_validator(
+        "trello_list_id_por_situacao",
+        "nomes_situacoes",
+        "trello_list_id_por_situacao_compra",
+        mode="before",
+    )
     @classmethod
     def _parse_mapa_situacoes(cls, valor: Any) -> Any:
         if isinstance(valor, str):
@@ -88,6 +102,18 @@ class Settings(BaseSettings):
                 if normalizar(chave) == alvo:
                     return valor
         return self.trello_list_id_padrao
+
+    def lista_para_situacao_compra(self, valor: int | None, nome_situacao: str | None = None) -> str:
+        """Lista do quadro de compras para a situação (chave pelo valor 0-3 ou pelo nome)."""
+        mapa = self.trello_list_id_por_situacao_compra
+        if valor is not None and str(valor) in mapa:
+            return mapa[str(valor)]
+        if nome_situacao:
+            alvo = normalizar(nome_situacao)
+            for chave, lista in mapa.items():
+                if normalizar(chave) == alvo:
+                    return lista
+        return self.trello_list_id_padrao_compras
 
 
 @lru_cache

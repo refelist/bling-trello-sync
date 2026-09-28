@@ -124,7 +124,8 @@ O serviço FastAPI em `bling_trello_sync/main.py` expõe:
 | `GET /healthz` | verificação de saúde |
 | `GET /oauth/bling/autorizar` e `GET /oauth/bling/callback` | autorização do Bling pelo navegador |
 | `GET /trello/listas` | listas do board, para montar o mapa de situações |
-| `POST /sincronizar/{pedido_id}` | sincroniza um pedido sob demanda |
+| `POST /sincronizar/{pedido_id}` | sincroniza um pedido de venda sob demanda |
+| `POST /sincronizar-compra/{pedido_id}` | sincroniza um pedido de compra sob demanda |
 
 Rodar:
 
@@ -136,6 +137,20 @@ uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
 O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling).
 
 Cada evento é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. O `eventId` é guardado no banco, então um evento reenviado não é processado duas vezes, e a sincronização roda em segundo plano para responder ao Bling dentro do tempo limite.
+
+## Pedidos de compra
+
+Os pedidos de compra vão para um **quadro separado** do Trello. O Bling não oferece webhook de pedido de compra, então esta parte funciona por consulta periódica: com `COMPRAS_ATIVO=true`, o serviço varre os pedidos de compra dos últimos `COMPRAS_DIAS` a cada `COMPRAS_INTERVALO_MINUTOS` minutos.
+
+Cada card traz fornecedor, número, datas, total, observações, itens e um checklist com um item por produto — marcado quando a quantidade já vinculada a uma nota fiscal de entrada cobre a quantidade comprada. A lista do card segue a situação do pedido (`0` Em aberto, `3` Em andamento, `1` Atendido, `2` Cancelado), configurada em `TRELLO_LIST_ID_POR_SITUACAO_COMPRA`.
+
+Comandos:
+
+```bash
+python -m bling_trello_sync.cli listas-trello-compras
+python -m bling_trello_sync.cli sincronizar-compras --dias 30
+python -m bling_trello_sync.cli sincronizar-compra 12345678
+```
 
 ## Testes
 

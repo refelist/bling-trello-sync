@@ -1,11 +1,15 @@
+import asyncio
 import logging
 import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .bling import BlingClient, validar_assinatura
+from .compras import SincronizadorCompras
 from .config import Settings, get_settings
 from .storage import Storage
 from .sync import Sincronizador
@@ -14,9 +18,21 @@ from .trello import TrelloClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    tarefa = _iniciar_compras()
+    try:
+        yield
+    finally:
+        if tarefa is not None:
+            tarefa.cancel()
+
+
 app = FastAPI(
     title="Bling -> Trello",
     description="Cria cards no Trello a partir de pedidos de venda do Bling",
+    lifespan=lifespan,
 )
 
 
@@ -32,6 +48,15 @@ def get_bling(
 
 def get_trello(settings: Settings = Depends(get_settings)) -> TrelloClient:
     return TrelloClient(settings.trello_api_key, settings.trello_token)
+
+
+def get_sincronizador_compras(
+    settings: Settings = Depends(get_settings),
+    storage: Storage = Depends(get_storage),
+    bling: BlingClient = Depends(get_bling),
+    trello: TrelloClient = Depends(get_trello),
+) -> SincronizadorCompras:
+    return SincronizadorCompras(settings, storage, bling, trello)
 
 
 def get_sincronizador(
@@ -54,6 +79,45 @@ def extrair_id_pedido(data: Any) -> int | None:
             if encontrado is not None:
                 return encontrado
     return None
+
+
+def _iniciar_compras() -> "asyncio.Task[None] | None":
+    settings = get_settings()
+    if not settings.compras_ativo:
+        return None
+    if not settings.trello_board_id_compras:
+        logger.warning("COMPRAS_ATIVO ligado sem TRELLO_BOARD_ID_COMPRAS; compras desativadas")
+        return None
+    logger.info(
+        "Sincronização de pedidos de compra ativa (a cada %s min)",
+        settings.compras_intervalo_minutos,
+    )
+    return asyncio.create_task(_loop_compras(settings))
+
+
+async def _loop_compras(settings: Settings) -> None:
+    """O Bling não tem webhook de pedido de compra, então o quadro é atualizado por consulta."""
+    intervalo = max(1, settings.compras_intervalo_minutos) * 60
+    storage = Storage(settings.database_path)
+    compras = SincronizadorCompras(
+        settings,
+        storage,
+        BlingClient(settings, storage),
+        TrelloClient(settings.trello_api_key, settings.trello_token),
+    )
+    while True:
+        try:
+            resumo = await asyncio.to_thread(compras.sincronizar_lote)
+            logger.info(
+                "Compras: %s encontradas | %s criadas | %s atualizadas | %s erros",
+                resumo.pedidos_encontrados,
+                resumo.cards_criados,
+                resumo.cards_atualizados,
+                len(resumo.erros),
+            )
+        except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
+            logger.exception("Falha ao sincronizar os pedidos de compra")
+        await asyncio.sleep(intervalo)
 
 
 @app.get("/healthz")
@@ -89,6 +153,13 @@ def sincronizar_manual(
 ) -> dict[str, Any]:
     resultado = sincronizador.sincronizar_pedido(pedido_id)
     return resultado.__dict__
+
+
+@app.post("/sincronizar-compra/{pedido_id}")
+def sincronizar_compra_manual(
+    pedido_id: int, compras: SincronizadorCompras = Depends(get_sincronizador_compras)
+) -> dict[str, Any]:
+    return compras.sincronizar_pedido(pedido_id).__dict__
 
 
 @app.post("/webhooks/bling")

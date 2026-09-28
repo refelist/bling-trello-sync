@@ -121,6 +121,26 @@ class BlingClient:
     def obter_nota_fiscal(self, nota_fiscal_id: int) -> dict[str, Any]:
         return self._get(f"/nfe/{nota_fiscal_id}")["data"]
 
+    def obter_pedido_compra(self, pedido_id: int) -> dict[str, Any]:
+        return self._get(f"/pedidos/compras/{pedido_id}")["data"]
+
+    def listar_pedidos_compras(
+        self,
+        pagina: int = 1,
+        limite: int = 100,
+        data_inicial: str | None = None,
+        data_final: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"pagina": pagina, "limite": limite}
+        if data_inicial:
+            params["dataInicial"] = data_inicial
+        if data_final:
+            params["dataFinal"] = data_final
+        return self._get("/pedidos/compras", params=params)["data"]
+
+    def obter_contato(self, contato_id: int) -> dict[str, Any]:
+        return self._get(f"/contatos/{contato_id}")["data"]
+
     def obter_situacao(self, situacao_id: int) -> dict[str, Any]:
         return self._get(f"/situacoes/{situacao_id}")["data"]
 

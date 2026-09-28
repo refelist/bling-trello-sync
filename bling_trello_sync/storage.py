@@ -20,6 +20,14 @@ CREATE TABLE IF NOT EXISTS card_por_pedido (
     atualizado_em REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS card_por_pedido_compra (
+    pedido_id INTEGER PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    card_url TEXT NOT NULL,
+    situacao_id INTEGER,
+    atualizado_em REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS nota_comentada (
     pedido_id INTEGER NOT NULL,
     nota_id INTEGER NOT NULL,
@@ -109,6 +117,29 @@ class Storage:
         with self._conexao() as conn:
             linha = conn.execute(
                 "SELECT * FROM card_por_pedido WHERE pedido_id = ?", (pedido_id,)
+            ).fetchone()
+        if linha is None:
+            return None
+        return CardPedido(linha["pedido_id"], linha["card_id"], linha["card_url"], linha["situacao_id"])
+
+    def salvar_card_compra(
+        self, pedido_id: int, card_id: str, card_url: str, situacao_id: int | None
+    ) -> None:
+        with self._conexao() as conn:
+            conn.execute(
+                "INSERT INTO card_por_pedido_compra "
+                "(pedido_id, card_id, card_url, situacao_id, atualizado_em) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(pedido_id) DO UPDATE SET card_id = excluded.card_id, "
+                "card_url = excluded.card_url, situacao_id = excluded.situacao_id, "
+                "atualizado_em = excluded.atualizado_em",
+                (pedido_id, card_id, card_url, situacao_id, time.time()),
+            )
+
+    def obter_card_compra(self, pedido_id: int) -> CardPedido | None:
+        with self._conexao() as conn:
+            linha = conn.execute(
+                "SELECT * FROM card_por_pedido_compra WHERE pedido_id = ?", (pedido_id,)
             ).fetchone()
         if linha is None:
             return None

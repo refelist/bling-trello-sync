@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from .bling import BlingClient
+from .compras import SincronizadorCompras
 from .config import get_settings
 from .oauth_local import autorizar
 from .storage import Storage
@@ -25,6 +26,13 @@ def _construir() -> tuple[Sincronizador, BlingClient, TrelloClient, Storage]:
     bling = BlingClient(settings, storage)
     trello = TrelloClient(settings.trello_api_key, settings.trello_token)
     return Sincronizador(settings, storage, bling, trello), bling, trello, storage
+
+
+def _construir_compras(bling: BlingClient, trello: TrelloClient, storage: Storage) -> SincronizadorCompras:
+    settings = get_settings()
+    if not settings.trello_board_id_compras:
+        raise SystemExit("Configure TRELLO_BOARD_ID_COMPRAS no .env para sincronizar as compras.")
+    return SincronizadorCompras(settings, storage, bling, trello)
 
 
 def _construir_parser() -> argparse.ArgumentParser:
@@ -63,6 +71,21 @@ def _construir_parser() -> argparse.ArgumentParser:
         help="Ignora a última execução e varre todos os pedidos que o filtro permitir",
     )
     p_sync.add_argument("--limite-paginas", type=int, default=100)
+
+    p_compras = sub.add_parser(
+        "sincronizar-compras", help="Sincroniza os pedidos de compra do período com o quadro de compras"
+    )
+    p_compras.add_argument("--dias", type=int, help="Período analisado (padrão: COMPRAS_DIAS do .env)")
+    p_compras.add_argument("--data-inicial", help="Data inicial da compra (AAAA-MM-DD)")
+    p_compras.add_argument("--data-final", help="Data final da compra (AAAA-MM-DD)")
+    p_compras.add_argument("--limite-paginas", type=int, default=100)
+
+    p_compra = sub.add_parser(
+        "sincronizar-compra", help="Sincroniza um único pedido de compra pelo ID do Bling"
+    )
+    p_compra.add_argument("pedido_id", type=int)
+
+    sub.add_parser("listas-trello-compras", help="Lista os IDs das listas do quadro de compras")
 
     p_pedido = sub.add_parser("sincronizar-pedido", help="Sincroniza um único pedido pelo ID do Bling")
     p_pedido.add_argument("pedido_id", type=int)
@@ -227,6 +250,27 @@ def main(argv: list[str] | None = None) -> int:
         print("Tokens do Bling armazenados com sucesso.")
     elif args.comando == "sincronizar":
         _comando_sincronizar(args, sincronizador, storage)
+    elif args.comando == "sincronizar-compras":
+        compras = _construir_compras(bling, trello, storage)
+        resumo = compras.sincronizar_lote(
+            dias=args.dias,
+            data_inicial=args.data_inicial,
+            data_final=args.data_final,
+            limite_paginas=args.limite_paginas,
+        )
+        print(
+            f"{resumo.pedidos_encontrados} compras processadas | "
+            f"{resumo.cards_criados} cards criados | {resumo.cards_atualizados} atualizados | "
+            f"{len(resumo.erros)} erros"
+        )
+        for pedido_id, erro in resumo.erros:
+            print(f"  erro na compra {pedido_id}: {erro}")
+    elif args.comando == "sincronizar-compra":
+        resultado = _construir_compras(bling, trello, storage).sincronizar_pedido(args.pedido_id)
+        print(f"{resultado.acao}: {resultado.card_url or '-'}")
+    elif args.comando == "listas-trello-compras":
+        for lista in trello.listar_listas(settings.trello_board_id_compras):
+            print(f"{lista['id']}  {lista['name']}")
     elif args.comando == "sincronizar-pedido":
         resultado = sincronizador.sincronizar_pedido(args.pedido_id)
         print(f"{resultado.acao}: {resultado.card_url or '-'}")
