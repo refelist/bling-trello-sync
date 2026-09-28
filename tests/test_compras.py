@@ -59,6 +59,9 @@ def compra() -> dict:
             },
         ],
         "observacoes": "Retirar no fornecedor",
+        "observacoesInternas": "Cobrar desconto",
+        "categoria": {"id": 33},
+        "transporte": {"fretePorConta": 1},
     }
 
 
@@ -73,6 +76,9 @@ class BlingComprasFake:
 
     def obter_contato(self, contato_id: int) -> dict:
         return {"id": contato_id, "nome": "Fornecedor Teste"}
+
+    def obter_categoria_receita_despesa(self, categoria_id: int) -> dict:
+        return {"id": categoria_id, "descricao": "COMPRAS - LOJA"}
 
     def listar_pedidos_compras(self, pagina: int = 1, **filtros) -> list[dict]:
         self.filtros.append({"pagina": pagina, **filtros})
@@ -100,11 +106,15 @@ def _sincronizador(settings, compra):
 
 def test_titulo_e_descricao(compra):
     assert titulo_do_card(compra, "Fornecedor Teste") == "Compra 551 - Fornecedor Teste"
-    descricao = descricao_do_card(compra, "Fornecedor Teste")
+    descricao = descricao_do_card(compra, "Fornecedor Teste", "COMPRAS - LOJA")
     assert "Fornecedor Teste" in descricao
     assert "R$ 2.500,00" in descricao
     assert "Parafuso" in descricao
     assert "Em aberto" in descricao
+    assert "**Categoria:** COMPRAS - LOJA" in descricao
+    assert "**Frete por conta:** Destinatário (FOB)" in descricao
+    assert "Retirar no fornecedor" not in descricao
+    assert "Cobrar desconto" not in descricao
 
 
 def test_checklist_marca_itens_ja_recebidos(compra):
@@ -123,6 +133,32 @@ def test_cria_card_na_lista_da_situacao(settings_compras, compra):
     assert storage.obter_card_compra(99887766).card_id == "card-1"
     assert storage.obter_card(99887766) is None
     assert trello.itens_criados == [("chk-1", "10 x PAR-1 Parafuso"), ("chk-1", "4 x POR-1 Porca")]
+
+
+def test_comenta_observacoes_uma_vez_cada(settings_compras, compra):
+    sincronizador, _storage, trello, _bling = _sincronizador(settings_compras, compra)
+
+    sincronizador.sincronizar_pedido(99887766)
+    sincronizador.sincronizar_pedido(99887766)
+
+    comentarios = [texto for _card, texto in trello.comentarios]
+    assert comentarios == [
+        "**Observações:** Retirar no fornecedor",
+        "**Observações internas:** Cobrar desconto",
+    ]
+
+    compra["observacoes"] = "Retirar na transportadora"
+    sincronizador.sincronizar_pedido(99887766)
+
+    assert trello.comentarios[-1][1] == "**Observações:** Retirar na transportadora"
+
+
+def test_categoria_vem_do_bling_quando_pedido_traz_so_o_id(settings_compras, compra):
+    sincronizador, _storage, trello, _bling = _sincronizador(settings_compras, compra)
+
+    sincronizador.sincronizar_pedido(99887766)
+
+    assert "**Categoria:** COMPRAS - LOJA" in trello.criados[0]["desc"]
 
 
 def test_move_card_e_comenta_quando_situacao_muda(settings_compras, compra):

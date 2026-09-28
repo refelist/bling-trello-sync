@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 
 NOMES_SITUACAO_COMPRA = {0: "Em aberto", 1: "Atendido", 2: "Cancelado", 3: "Em andamento"}
 
+FRETE_POR_CONTA = {
+    0: "Remetente (CIF)",
+    1: "Destinatário (FOB)",
+    2: "Terceiros",
+    3: "Transporte próprio por conta do remetente",
+    4: "Transporte próprio por conta do destinatário",
+    9: "Sem ocorrência de transporte",
+}
+
 
 def nome_da_situacao(pedido: dict[str, Any]) -> str | None:
     situacao = pedido.get("situacao") or {}
@@ -40,7 +49,17 @@ def titulo_do_card(pedido: dict[str, Any], fornecedor: str | None) -> str:
     return f"Compra {numero} - {fornecedor or 'Sem fornecedor'}"
 
 
-def descricao_do_card(pedido: dict[str, Any], fornecedor: str | None) -> str:
+def frete_por_conta(pedido: dict[str, Any]) -> str | None:
+    transporte = pedido.get("transporte") or {}
+    valor = transporte.get("fretePorConta")
+    if valor is None:
+        return None
+    return FRETE_POR_CONTA.get(valor, str(valor))
+
+
+def descricao_do_card(
+    pedido: dict[str, Any], fornecedor: str | None, categoria: str | None = None
+) -> str:
     linhas = [
         f"**Pedido de compra:** {pedido.get('numero', '-')} (id `{pedido.get('id', '-')}`)",
         f"**Fornecedor:** {fornecedor or '-'}",
@@ -50,6 +69,11 @@ def descricao_do_card(pedido: dict[str, Any], fornecedor: str | None) -> str:
     situacao = nome_da_situacao(pedido)
     if situacao:
         linhas.append(f"**Situação:** {situacao}")
+    if categoria:
+        linhas.append(f"**Categoria:** {categoria}")
+    frete = frete_por_conta(pedido)
+    if frete:
+        linhas.append(f"**Frete por conta:** {frete}")
     if pedido.get("ordemCompra"):
         linhas.append(f"**Ordem de compra:** {pedido['ordemCompra']}")
 
@@ -61,10 +85,6 @@ def descricao_do_card(pedido: dict[str, Any], fornecedor: str | None) -> str:
                 f"- {_codigo_do_item(item)} {item.get('descricao', '')} — "
                 f"{_quantidade(item):g} x {_moeda(item.get('valor'))}".strip()
             )
-
-    observacoes = pedido.get("observacoes")
-    if observacoes:
-        linhas.extend(["", f"**Observações:** {observacoes}"])
 
     return "\n".join(linhas)
 
@@ -108,6 +128,7 @@ class SincronizadorCompras:
         self.bling = bling
         self.trello = trello
         self._fornecedores: dict[int, str] = {}
+        self._categorias: dict[int, str] = {}
         self._listas_por_nome: dict[str, str] | None = None
 
     def _id_da_lista(self, valor: str) -> str:
@@ -135,6 +156,37 @@ class SincronizadorCompras:
                 return None
             self._fornecedores[contato_id] = str(contato.get("nome") or contato_id)
         return self._fornecedores[contato_id]
+
+    def _nome_categoria(self, pedido: dict[str, Any]) -> str | None:
+        categoria = pedido.get("categoria") or {}
+        descricao = categoria.get("descricao") or categoria.get("nome")
+        if descricao:
+            return str(descricao)
+        categoria_id = categoria.get("id")
+        if not categoria_id:
+            return None
+        categoria_id = int(categoria_id)
+        if categoria_id not in self._categorias:
+            try:
+                dados = self.bling.obter_categoria_receita_despesa(categoria_id)
+            except Exception as erro:  # noqa: BLE001 - a categoria é informativa
+                logger.warning("Falha ao buscar a categoria %s: %s", categoria_id, erro)
+                return None
+            self._categorias[categoria_id] = str(dados.get("descricao") or categoria_id)
+        return self._categorias[categoria_id]
+
+    def _comentar_observacoes(self, card_id: str, pedido_id: int, pedido: dict[str, Any]) -> None:
+        """Publica observações e observações internas em comentários separados, sem repetir."""
+        textos = (
+            ("observacoes", "Observações", pedido.get("observacoes")),
+            ("observacoesInternas", "Observações internas", pedido.get("observacoesInternas")),
+        )
+        for tipo, rotulo, texto in textos:
+            texto = (texto or "").strip()
+            if not texto:
+                continue
+            if self.storage.registrar_comentario_compra(pedido_id, tipo, texto):
+                self.trello.comentar(card_id, f"**{rotulo}:** {texto}")
 
     def _sincronizar_checklist(self, card_id: str, itens: list[tuple[str, bool]]) -> None:
         if not itens:
@@ -166,7 +218,7 @@ class SincronizadorCompras:
         id_list = self._id_da_lista(self.settings.lista_para_situacao_compra(valor, nome_situacao))
         fornecedor = self._nome_fornecedor(pedido)
         nome = titulo_do_card(pedido, fornecedor)
-        descricao = descricao_do_card(pedido, fornecedor)
+        descricao = descricao_do_card(pedido, fornecedor, self._nome_categoria(pedido))
         due = _data_para_trello(pedido.get("dataPrevista"))
         itens = itens_do_checklist(pedido)
 
@@ -199,11 +251,13 @@ class SincronizadorCompras:
             )
             self.storage.salvar_card_compra(pedido_id, card["id"], card["shortUrl"], valor)
             self._sincronizar_checklist(card["id"], itens)
+            self._comentar_observacoes(card["id"], pedido_id, pedido)
             logger.info("Card criado para a compra %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card_compra(pedido_id, card["id"], card["shortUrl"], valor)
         self._sincronizar_checklist(card["id"], itens)
+        self._comentar_observacoes(card["id"], pedido_id, pedido)
         if existente.situacao_id != valor and valor is not None:
             self.trello.comentar(
                 card["id"], f"Situação alterada no Bling para: {nome_situacao or valor}"
