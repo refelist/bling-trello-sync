@@ -42,6 +42,13 @@ class Settings(BaseSettings):
         default_factory=dict
     )
 
+    financeiro_ativo: bool = False
+    financeiro_empresa: str = "Empresa"
+    financeiro_database_url: str = "financeiro.db"
+    financeiro_dias: int = 365
+    financeiro_dias_futuros: int = 365
+    financeiro_intervalo_minutos: int = 60
+
     lojas_ignoradas: Annotated[list[str], NoDecode] = Field(default_factory=list)
     lojas_permitidas: Annotated[list[str], NoDecode] = Field(default_factory=list)
 

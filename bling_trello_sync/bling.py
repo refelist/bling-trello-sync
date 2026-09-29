@@ -141,6 +141,76 @@ class BlingClient:
     def obter_categoria_receita_despesa(self, categoria_id: int) -> dict[str, Any]:
         return self._get(f"/categorias/receitas-despesas/{categoria_id}")["data"]
 
+    def listar_categorias_receitas_despesas(
+        self, pagina: int = 1, limite: int = 100
+    ) -> list[dict[str, Any]]:
+        params = {"pagina": pagina, "limite": limite}
+        return self._get("/categorias/receitas-despesas", params=params)["data"]
+
+    def listar_contas_financeiras(self, pagina: int = 1, limite: int = 100) -> list[dict[str, Any]]:
+        return self._get("/contas-contabeis", params={"pagina": pagina, "limite": limite})["data"]
+
+    def listar_formas_pagamentos(self, pagina: int = 1, limite: int = 100) -> list[dict[str, Any]]:
+        return self._get("/formas-pagamentos", params={"pagina": pagina, "limite": limite})["data"]
+
+    def listar_contas_receber(
+        self,
+        pagina: int = 1,
+        limite: int = 100,
+        tipo_filtro_data: str = "E",
+        data_inicial: str | None = None,
+        data_final: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Contas a receber do período.
+
+        `tipo_filtro_data`: E (emissão), V (vencimento) ou R (recebimento).
+        """
+        params: dict[str, Any] = {
+            "pagina": pagina,
+            "limite": limite,
+            "tipoFiltroData": tipo_filtro_data,
+        }
+        if data_inicial:
+            params["dataInicial"] = data_inicial
+        if data_final:
+            params["dataFinal"] = data_final
+        return self._get("/contas/receber", params=params)["data"]
+
+    def obter_conta_receber(self, conta_id: int) -> dict[str, Any]:
+        return self._get(f"/contas/receber/{conta_id}")["data"]
+
+    def listar_contas_pagar(
+        self,
+        pagina: int = 1,
+        limite: int = 100,
+        data_emissao_inicial: str | None = None,
+        data_emissao_final: str | None = None,
+        data_vencimento_inicial: str | None = None,
+        data_vencimento_final: str | None = None,
+        data_pagamento_inicial: str | None = None,
+        data_pagamento_final: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"pagina": pagina, "limite": limite}
+        if data_emissao_inicial:
+            params["dataEmissaoInicial"] = data_emissao_inicial
+        if data_emissao_final:
+            params["dataEmissaoFinal"] = data_emissao_final
+        if data_vencimento_inicial:
+            params["dataVencimentoInicial"] = data_vencimento_inicial
+        if data_vencimento_final:
+            params["dataVencimentoFinal"] = data_vencimento_final
+        if data_pagamento_inicial:
+            params["dataPagamentoInicial"] = data_pagamento_inicial
+        if data_pagamento_final:
+            params["dataPagamentoFinal"] = data_pagamento_final
+        return self._get("/contas/pagar", params=params)["data"]
+
+    def obter_conta_pagar(self, conta_id: int) -> dict[str, Any]:
+        return self._get(f"/contas/pagar/{conta_id}")["data"]
+
+    def obter_bordero(self, bordero_id: int) -> dict[str, Any]:
+        return self._get(f"/borderos/{bordero_id}")["data"]
+
     def obter_contato(self, contato_id: int) -> dict[str, Any]:
         return self._get(f"/contatos/{contato_id}")["data"]
 
