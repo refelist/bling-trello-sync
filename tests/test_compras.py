@@ -46,6 +46,7 @@ def compra() -> dict:
         "itens": [
             {
                 "descricao": "Parafuso",
+                "descricaoDetalhada": "aco inox 5mm",
                 "quantidade": 10,
                 "valor": 5.0,
                 "produto": {"id": 1, "codigo": "PAR-1"},
@@ -109,7 +110,7 @@ def test_titulo_e_descricao(compra):
     descricao = descricao_do_card(compra, "Fornecedor Teste", "COMPRAS - LOJA")
     assert "Fornecedor Teste" in descricao
     assert "R$ 2.500,00" in descricao
-    assert "Parafuso" in descricao
+    assert "Parafuso (aco inox 5mm)" in descricao
     assert "Em aberto" in descricao
     assert "**Categoria:** COMPRAS - LOJA" in descricao
     assert "**Frete por conta:** Destinatário (FOB)" in descricao
@@ -119,7 +120,7 @@ def test_titulo_e_descricao(compra):
 
 def test_checklist_marca_itens_ja_recebidos(compra):
     itens = itens_do_checklist(compra)
-    assert itens == [("10 x PAR-1 Parafuso", True), ("4 x POR-1 Porca", False)]
+    assert itens == [("10 x PAR-1 Parafuso (aco inox 5mm)", True), ("4 x POR-1 Porca", False)]
 
 
 def test_cria_card_na_lista_da_situacao(settings_compras, compra):
@@ -132,7 +133,10 @@ def test_cria_card_na_lista_da_situacao(settings_compras, compra):
     assert trello.criados[0]["due"] == "2026-02-20T00:00:00.000Z"
     assert storage.obter_card_compra(99887766).card_id == "card-1"
     assert storage.obter_card(99887766) is None
-    assert trello.itens_criados == [("chk-1", "10 x PAR-1 Parafuso"), ("chk-1", "4 x POR-1 Porca")]
+    assert trello.itens_criados == [
+        ("chk-1", "10 x PAR-1 Parafuso (aco inox 5mm)"),
+        ("chk-1", "4 x POR-1 Porca"),
+    ]
 
 
 def test_comenta_observacoes_uma_vez_cada(settings_compras, compra):
