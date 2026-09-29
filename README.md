@@ -167,6 +167,27 @@ O que é coletado: contas a receber e a pagar (emitidas, vencendo ou liquidadas 
 
 Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`. Visões prontas para os relatórios: `vw_lancamento`, `vw_dre` (competência), `vw_fluxo_caixa` (caixa realizado), `vw_contas_em_aberto` e `vw_faturamento`.
 
+### Banco no servidor
+
+```bash
+apt install -y postgresql
+sudo -u postgres psql -c "CREATE DATABASE financeiro" \
+  -c "CREATE USER bling_app PASSWORD 'senha-do-programa'" \
+  -c "CREATE USER powerbi PASSWORD 'senha-do-power-bi'"
+sudo -u postgres psql -d financeiro \
+  -c "GRANT ALL ON SCHEMA public TO bling_app" \
+  -c "GRANT USAGE ON SCHEMA public TO powerbi" \
+  -c "ALTER DEFAULT PRIVILEGES FOR ROLE bling_app IN SCHEMA public GRANT SELECT ON TABLES TO powerbi"
+```
+
+O usuário `powerbi` só lê. O PostgreSQL fica escutando apenas em `localhost`, então o Power BI de outro computador acessa por um túnel SSH (`ssh -L 5432:localhost:5432 root@servidor`) e conecta em `localhost:5432`.
+
+Os testes contra um PostgreSQL de verdade rodam quando a variável está definida:
+
+```bash
+FINANCEIRO_TEST_POSTGRES=postgresql://bling_app:senha@localhost:5432/financeiro pytest
+```
+
 O aplicativo do Bling de cada conta precisa dos escopos de **Finanças** (contas a pagar, contas a receber, categorias de receitas e despesas, contas financeiras e formas de pagamento); sem eles a API responde 403.
 
 ## Testes
