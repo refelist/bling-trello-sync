@@ -8,9 +8,11 @@ from typing import Any
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from .armazem import Armazem
 from .bling import BlingClient, validar_assinatura
 from .compras import SincronizadorCompras
 from .config import Settings, get_settings
+from .financeiro import ColetorFinanceiro
 from .storage import Storage
 from .sync import Sincronizador
 from .trello import TrelloClient
@@ -21,12 +23,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    tarefa = _iniciar_compras()
+    tarefas = [_iniciar_compras(), _iniciar_financeiro()]
     try:
         yield
     finally:
-        if tarefa is not None:
-            tarefa.cancel()
+        for tarefa in tarefas:
+            if tarefa is not None:
+                tarefa.cancel()
 
 
 app = FastAPI(
@@ -117,6 +120,34 @@ async def _loop_compras(settings: Settings) -> None:
             )
         except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
             logger.exception("Falha ao sincronizar os pedidos de compra")
+        await asyncio.sleep(intervalo)
+
+
+def _iniciar_financeiro() -> "asyncio.Task[None] | None":
+    settings = get_settings()
+    if not settings.financeiro_ativo:
+        return None
+    logger.info(
+        "Coleta financeira ativa (a cada %s min) gravando em %s",
+        settings.financeiro_intervalo_minutos,
+        settings.financeiro_database_url.split("@")[-1],
+    )
+    return asyncio.create_task(_loop_financeiro(settings))
+
+
+async def _loop_financeiro(settings: Settings) -> None:
+    """Atualiza o banco financeiro lido pelo Power BI; o Bling não avisa mudanças por webhook."""
+    intervalo = max(1, settings.financeiro_intervalo_minutos) * 60
+    storage = Storage(settings.database_path)
+    coletor = ColetorFinanceiro(
+        settings, BlingClient(settings, storage), Armazem(settings.financeiro_database_url)
+    )
+    while True:
+        try:
+            resumo = await asyncio.to_thread(coletor.coletar)
+            logger.info("Financeiro: %s | %s erros", resumo, len(resumo.erros))
+        except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
+            logger.exception("Falha ao coletar os dados financeiros")
         await asyncio.sleep(intervalo)
 
 

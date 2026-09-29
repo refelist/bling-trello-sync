@@ -152,6 +152,23 @@ python -m bling_trello_sync.cli sincronizar-compras --dias 30
 python -m bling_trello_sync.cli sincronizar-compra 12345678
 ```
 
+## Financeiro (Power BI)
+
+Parte independente do Trello: coleta o financeiro do Bling e grava em um banco que o Power BI lê. Com `FINANCEIRO_ATIVO=true` o próprio serviço atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`; também dá para rodar sob demanda:
+
+```bash
+python -m bling_trello_sync.cli sincronizar-financeiro --dias 365
+python -m bling_trello_sync.cli sincronizar-financeiro --data-inicial 2025-01-01 --data-final 2026-12-31
+```
+
+`FINANCEIRO_DATABASE_URL` aceita um PostgreSQL (`postgresql://usuario:senha@host:5432/banco`, recomendado, pois vários desktops leem o mesmo banco) ou o caminho de um arquivo SQLite. Cada cópia do programa grava com o nome em `FINANCEIRO_EMPRESA`, e as duas contas do Bling podem apontar para o mesmo banco: a coluna `empresa` permite ver uma, outra ou as duas somadas.
+
+O que é coletado: contas a receber e a pagar (emitidas, vencendo ou liquidadas no período), os borderos de cada conta liquidada (pagamento efetivo, com juros, desconto, acréscimo e tarifa), pedidos de venda e as dimensões categoria, conta financeira, forma de pagamento e contato. Para poupar requisições, o detalhe de uma conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` ignora essa checagem).
+
+Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`. Visões prontas para os relatórios: `vw_lancamento`, `vw_dre` (competência), `vw_fluxo_caixa` (caixa realizado), `vw_contas_em_aberto` e `vw_faturamento`.
+
+O aplicativo do Bling de cada conta precisa dos escopos de **Finanças** (contas a pagar, contas a receber, categorias de receitas e despesas, contas financeiras e formas de pagamento); sem eles a API responde 403.
+
 ## Testes
 
 ```bash

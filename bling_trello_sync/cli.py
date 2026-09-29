@@ -6,9 +6,11 @@ import logging
 from collections import Counter
 from datetime import datetime, timedelta
 
+from .armazem import Armazem
 from .bling import BlingClient
 from .compras import SincronizadorCompras
 from .config import get_settings
+from .financeiro import ColetorFinanceiro
 from .oauth_local import autorizar
 from .storage import Storage
 from .sync import Sincronizador
@@ -33,6 +35,11 @@ def _construir_compras(bling: BlingClient, trello: TrelloClient, storage: Storag
     if not settings.trello_board_id_compras:
         raise SystemExit("Configure TRELLO_BOARD_ID_COMPRAS no .env para sincronizar as compras.")
     return SincronizadorCompras(settings, storage, bling, trello)
+
+
+def _construir_financeiro(bling: BlingClient) -> ColetorFinanceiro:
+    settings = get_settings()
+    return ColetorFinanceiro(settings, bling, Armazem(settings.financeiro_database_url))
 
 
 def _construir_parser() -> argparse.ArgumentParser:
@@ -86,6 +93,21 @@ def _construir_parser() -> argparse.ArgumentParser:
     p_compra.add_argument("pedido_id", type=int)
 
     sub.add_parser("listas-trello-compras", help="Lista os IDs das listas do quadro de compras")
+
+    p_financeiro = sub.add_parser(
+        "sincronizar-financeiro",
+        help="Coleta contas a pagar/receber, pagamentos e faturamento para o banco do Power BI",
+    )
+    p_financeiro.add_argument(
+        "--dias", type=int, help="Período para trás (padrão: FINANCEIRO_DIAS do .env)"
+    )
+    p_financeiro.add_argument("--data-inicial", help="Data inicial (AAAA-MM-DD)")
+    p_financeiro.add_argument("--data-final", help="Data final (AAAA-MM-DD)")
+    p_financeiro.add_argument(
+        "--recarregar-tudo",
+        action="store_true",
+        help="Relê o detalhe de todas as contas do período, mesmo as que não mudaram",
+    )
 
     p_pedido = sub.add_parser("sincronizar-pedido", help="Sincroniza um único pedido pelo ID do Bling")
     p_pedido.add_argument("pedido_id", type=int)
@@ -265,6 +287,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         for pedido_id, erro in resumo.erros:
             print(f"  erro na compra {pedido_id}: {erro}")
+    elif args.comando == "sincronizar-financeiro":
+        resumo = _construir_financeiro(bling).coletar(
+            dias=args.dias,
+            data_inicial=args.data_inicial,
+            data_final=args.data_final,
+            recarregar_tudo=args.recarregar_tudo,
+        )
+        print(f"Linhas gravadas -> {resumo}")
+        for origem, erro in resumo.erros:
+            print(f"  erro em {origem}: {erro}")
     elif args.comando == "sincronizar-compra":
         resultado = _construir_compras(bling, trello, storage).sincronizar_pedido(args.pedido_id)
         print(f"{resultado.acao}: {resultado.card_url or '-'}")
