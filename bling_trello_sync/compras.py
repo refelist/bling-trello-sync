@@ -82,7 +82,7 @@ def descricao_do_card(
         linhas.extend(["", "**Itens:**"])
         for item in itens:
             linhas.append(
-                f"- {_codigo_do_item(item)} {item.get('descricao', '')} — "
+                f"- {_codigo_do_item(item)} {_descricao_do_item(item)} — "
                 f"{_quantidade(item):g} x {_moeda(item.get('valor'))}".strip()
             )
 
@@ -92,6 +92,14 @@ def descricao_do_card(
 def _codigo_do_item(item: dict[str, Any]) -> str:
     produto = item.get("produto") or {}
     return str(produto.get("codigo") or item.get("codigoFornecedor") or "")
+
+
+def _descricao_do_item(item: dict[str, Any]) -> str:
+    descricao = str(item.get("descricao") or "").strip()
+    detalhada = str(item.get("descricaoDetalhada") or "").strip()
+    if detalhada and detalhada != descricao:
+        return f"{descricao} ({detalhada})".strip()
+    return descricao
 
 
 def _quantidade_recebida(item: dict[str, Any]) -> float:
@@ -108,7 +116,7 @@ def itens_do_checklist(pedido: dict[str, Any]) -> list[tuple[str, bool]]:
     itens = []
     for item in pedido.get("itens") or []:
         quantidade = _quantidade(item)
-        nome = f"{quantidade:g} x {_codigo_do_item(item)} {item.get('descricao', '')}"
+        nome = f"{quantidade:g} x {_codigo_do_item(item)} {_descricao_do_item(item)}"
         nome = nome.replace("  ", " ").strip()
         recebida = _quantidade_recebida(item)
         itens.append((nome, quantidade > 0 and recebida + 1e-6 >= quantidade))
