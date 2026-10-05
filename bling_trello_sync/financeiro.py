@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from itertools import product
 from typing import Any
 
 from .armazem import Armazem, versao_da_conta
@@ -16,6 +17,20 @@ from .bling import BlingClient
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+MAIOR_PERIODO_DIAS = 366
+
+
+def janelas_do_periodo(inicio: str, fim: str, dias: int = MAIOR_PERIODO_DIAS) -> list[tuple[str, str]]:
+    """Divide o período em janelas de até `dias` dias, o máximo que o Bling aceita por consulta."""
+    atual = date.fromisoformat(inicio)
+    ultimo = date.fromisoformat(fim)
+    janelas: list[tuple[str, str]] = []
+    while atual <= ultimo:
+        final = min(atual + timedelta(days=dias - 1), ultimo)
+        janelas.append((atual.isoformat(), final.isoformat()))
+        atual = final + timedelta(days=1)
+    return janelas
 
 
 @dataclass
@@ -251,10 +266,10 @@ class ColetorFinanceiro:
     def _contas_receber_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
         """Contas a receber emitidas, vencidas ou recebidas no período, sem repetir."""
         encontradas: dict[int, dict[str, Any]] = {}
-        for tipo_filtro in ("E", "V", "R"):
+        for (ini, fin), tipo_filtro in product(janelas_do_periodo(inicio, fim), ("E", "V", "R")):
             registros = self._paginar(
-                lambda p, t=tipo_filtro: self.bling.listar_contas_receber(
-                    pagina=p, tipo_filtro_data=t, data_inicial=inicio, data_final=fim
+                lambda p, t=tipo_filtro, i=ini, f=fin: self.bling.listar_contas_receber(
+                    pagina=p, tipo_filtro_data=t, data_inicial=i, data_final=f
                 )
             )
             for registro in registros:
@@ -265,11 +280,11 @@ class ColetorFinanceiro:
 
     def _contas_pagar_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
         encontradas: dict[int, dict[str, Any]] = {}
-        filtros = (
-            {"data_emissao_inicial": inicio, "data_emissao_final": fim},
-            {"data_vencimento_inicial": inicio, "data_vencimento_final": fim},
-            {"data_pagamento_inicial": inicio, "data_pagamento_final": fim},
-        )
+        filtros = [
+            {f"data_{campo}_inicial": ini, f"data_{campo}_final": fin}
+            for ini, fin in janelas_do_periodo(inicio, fim)
+            for campo in ("emissao", "vencimento", "pagamento")
+        ]
         for filtro in filtros:
             registros = self._paginar(
                 lambda p, f=filtro: self.bling.listar_contas_pagar(pagina=p, **f)
@@ -340,9 +355,15 @@ class ColetorFinanceiro:
 
     def coletar_pedidos_venda(self, inicio: str, fim: str, resumo: ResumoFinanceiro) -> None:
         agora = datetime.now().isoformat(timespec="seconds")
-        pedidos = self._paginar(
-            lambda p: self.bling.listar_pedidos_vendas(pagina=p, data_inicial=inicio, data_final=fim)
-        )
+        pedidos: list[dict[str, Any]] = []
+        for ini, fin in janelas_do_periodo(inicio, fim):
+            pedidos.extend(
+                self._paginar(
+                    lambda p, i=ini, f=fin: self.bling.listar_pedidos_vendas(
+                        pagina=p, data_inicial=i, data_final=f
+                    )
+                )
+            )
         linhas = [linha_pedido_venda(pedido, self.empresa, agora) for pedido in pedidos]
         resumo.somar("pedido_venda", self.armazem.gravar("pedido_venda", linhas))
 
