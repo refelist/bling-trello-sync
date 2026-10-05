@@ -3,6 +3,7 @@ import pytest
 from bling_trello_sync.armazem import Armazem
 from bling_trello_sync.financeiro import (
     ColetorFinanceiro,
+    janelas_do_periodo,
     linha_conta_pagar,
     linha_conta_receber,
     linhas_do_bordero,
@@ -201,3 +202,27 @@ def test_empresas_diferentes_convivem_na_mesma_base(settings, armazem):
     empresas = armazem.ler("SELECT DISTINCT empresa FROM conta_receber ORDER BY empresa")
     assert empresas == [("Empresa 1",), ("Empresa 2",)]
     assert armazem.ler("SELECT COUNT(*) FROM conta_receber")[0][0] == 2
+
+
+def test_periodo_longo_e_dividido_em_janelas_de_ate_366_dias():
+    assert janelas_do_periodo("2025-10-05", "2027-10-05") == [
+        ("2025-10-05", "2026-10-05"),
+        ("2026-10-06", "2027-10-05"),
+    ]
+    assert janelas_do_periodo("2026-01-01", "2026-01-31") == [("2026-01-01", "2026-01-31")]
+
+
+def test_coleta_consulta_o_bling_em_janelas_de_ate_366_dias(settings, armazem):
+    coletor, bling = _coletor(settings, armazem)
+    periodos: list[tuple[str, str]] = []
+    original = bling.listar_contas_receber
+
+    def listar(pagina=1, limite=100, tipo_filtro_data="E", data_inicial=None, data_final=None):
+        periodos.append((data_inicial, data_final))
+        return original(pagina=pagina, limite=limite, tipo_filtro_data=tipo_filtro_data)
+
+    bling.listar_contas_receber = listar
+    coletor.coletar(data_inicial="2025-10-05", data_final="2027-10-05")
+
+    assert set(periodos) == {("2025-10-05", "2026-10-05"), ("2026-10-06", "2027-10-05")}
+    assert armazem.ler("SELECT COUNT(*) FROM conta_receber")[0][0] == 1
