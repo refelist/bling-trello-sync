@@ -1,0 +1,127 @@
+/// Contas a pagar e a receber do Bling, uma linha por título (visão vw_lancamento).
+table Lançamentos
+
+	/// Soma dos recebimentos já baixados nas contas a receber.
+	measure Recebimentos = CALCULATE(SUM(Lançamentos[Valor Liquidado]), Lançamentos[Natureza] = "receita")
+		formatString: \R$ #,##0.00
+		displayFolder: Realizado
+
+	/// Soma dos pagamentos já baixados nas contas a pagar.
+	measure Pagamentos = CALCULATE(SUM(Lançamentos[Valor Liquidado]), Lançamentos[Natureza] = "despesa")
+		formatString: \R$ #,##0.00
+		displayFolder: Realizado
+
+	/// Recebimentos menos pagamentos efetivamente baixados no período.
+	measure 'Saldo Realizado' = [Recebimentos] - [Pagamentos]
+		formatString: \R$ #,##0.00
+		displayFolder: Realizado
+
+	/// Valor total das contas a receber lançadas, independente de terem sido recebidas.
+	measure 'Total a Receber (lançado)' = CALCULATE(SUM(Lançamentos[Valor]), Lançamentos[Natureza] = "receita")
+		formatString: \R$ #,##0.00
+		displayFolder: Lançado
+
+	/// Valor total das contas a pagar lançadas, independente de terem sido pagas.
+	measure 'Total a Pagar (lançado)' = CALCULATE(SUM(Lançamentos[Valor]), Lançamentos[Natureza] = "despesa")
+		formatString: \R$ #,##0.00
+		displayFolder: Lançado
+
+	/// Quantidade de títulos.
+	measure 'Qtde de Títulos' = COUNTROWS(Lançamentos)
+		formatString: #,##0
+		displayFolder: Lançado
+
+	column Empresa
+		dataType: string
+		sourceColumn: empresa
+
+	/// receita (conta a receber) ou despesa (conta a pagar).
+	column Natureza
+		dataType: string
+		sourceColumn: natureza
+
+	column Id
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: id
+
+	column 'Situação Código'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: situacao
+
+	column Situação
+		dataType: string
+		sourceColumn: situacao_nome
+
+	column Emissão
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: data_emissao
+
+	column Competência
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: competencia
+
+	column Vencimento
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: vencimento
+
+	column Valor
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: valor
+
+	column Saldo
+		dataType: decimal
+		formatString: \R$ #,##0.00
+		sourceColumn: saldo
+
+	column 'Valor Liquidado'
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: valor_liquidado
+
+	column 'Categoria Id'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: categoria_id
+
+	column 'Portador Id'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: portador_id
+
+	column 'Contato Id'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: contato_id
+
+	/// Cliente (contas a receber) ou fornecedor (contas a pagar).
+	column Contato
+		dataType: string
+		sourceColumn: contato_nome
+
+	column Histórico
+		dataType: string
+		sourceColumn: historico
+
+	partition Lançamentos = m
+		mode: import
+		source = ```
+				let
+				    // Contas a pagar e a receber unificadas pela visão vw_lancamento do banco financeiro.
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    #"Selecionada a visão de lançamentos" = Fonte{[Schema="public", Item="vw_lancamento"]}[Data]
+				in
+				    #"Selecionada a visão de lançamentos"
+				```

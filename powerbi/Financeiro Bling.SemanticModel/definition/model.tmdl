@@ -1,0 +1,24 @@
+model Model
+	culture: pt-BR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	discourageImplicitMeasures
+	sourceQueryCulture: pt-BR
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+/// Endereço do banco financeiro, no formato host:porta. Use localhost:5432 quando o túnel SSH estiver aberto.
+expression Servidor = "localhost:5432" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 1a9d2f3c-4b55-4c11-8f2a-71ee0c4f0001
+
+/// Nome do banco de dados financeiro no PostgreSQL.
+expression Banco = "financeiro" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 1a9d2f3c-4b55-4c11-8f2a-71ee0c4f0002
+
+ref table Lançamentos
+ref table DRE
+ref table 'Fluxo de Caixa'
+ref table 'Contas em Aberto'
+ref table Faturamento
+ref table Empresa
+ref table Calendário
