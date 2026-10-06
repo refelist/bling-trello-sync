@@ -226,3 +226,10 @@ def test_coleta_consulta_o_bling_em_janelas_de_ate_366_dias(settings, armazem):
 
     assert set(periodos) == {("2025-10-05", "2026-10-05"), ("2026-10-06", "2027-10-05")}
     assert armazem.ler("SELECT COUNT(*) FROM conta_receber")[0][0] == 1
+
+
+def test_data_zerada_do_bling_vira_vazia():
+    conta = {"id": 1, "situacao": 1, "valor": 10.0, "vencimento": "0000-00-00", "dataEmissao": ""}
+    linha = linha_conta_pagar(conta, "Empresa 1", "2026-01-01T00:00:00")
+    assert linha["vencimento"] is None
+    assert linha["data_emissao"] is None

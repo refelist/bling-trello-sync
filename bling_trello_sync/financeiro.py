@@ -61,11 +61,12 @@ def _int(valor: Any) -> int | None:
 
 
 def _data(valor: Any) -> str | None:
-    """Mantém só a parte AAAA-MM-DD; devolve None quando o Bling manda vazio."""
-    texto = str(valor or "").strip()
-    if not texto:
+    """Mantém só a parte AAAA-MM-DD; devolve None quando o Bling manda vazio ou "0000-00-00"."""
+    texto = str(valor or "").strip()[:10]
+    try:
+        return date.fromisoformat(texto).isoformat()
+    except ValueError:
         return None
-    return texto[:10]
 
 
 def _texto(valor: Any) -> str | None:
