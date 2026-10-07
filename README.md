@@ -182,6 +182,16 @@ Para abrir em um desktop:
 
 O DRE soma pela data de competência e o fluxo de caixa pela data em que o valor foi efetivamente pago ou recebido.
 
+### Painéis no navegador (Grafana)
+
+Alternativa gratuita ao Power BI online: o Grafana roda no próprio servidor, lê as mesmas visões do banco e é aberto pelo navegador, com login e senha para cada pessoa. São sete painéis (Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas), com o filtro **Empresa** (uma, outra ou as duas), o seletor de período no canto superior direito e botões para ir de um painel a outro mantendo os filtros.
+
+1. Crie um subdomínio no DuckDNS (por exemplo `refelist-bi`) apontando para o IP do servidor.
+2. No servidor, dentro da pasta do repositório: `bash grafana/instalar.sh refelist-bi.duckdns.org`. O script instala o Grafana, conecta no banco com o usuário `powerbi` (senha lida de `/root/senha-powerbi.txt`), carrega os painéis, publica o endereço com HTTPS pelo Caddy e grava a senha do usuário `admin` em `/root/senha-grafana.txt`. Pode ser rodado de novo para atualizar os painéis.
+3. Entre como `admin` e cadastre as outras pessoas em *Administração > Usuários e acesso > Usuários > Novo usuário*, com o papel **Viewer**, que só pode ver os painéis.
+
+Os painéis são gerados por `grafana/gerar_paineis.py`; depois de alterar o script, rode `python grafana/gerar_paineis.py`, faça commit dos JSON em `grafana/paineis/` e rode o `instalar.sh` de novo no servidor.
+
 ## Testes
 
 ```bash
