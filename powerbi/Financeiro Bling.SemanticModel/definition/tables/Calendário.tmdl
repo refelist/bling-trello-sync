@@ -29,6 +29,12 @@ table Calendário
 		sortByColumn: 'Mês Nº'
 		sourceColumn: Mês
 
+	column Dia
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Dia
+
 	/// Ano e mês no formato 2026-01, útil para ordenar eixos de gráficos.
 	column 'Ano-Mês'
 		dataType: string
@@ -76,7 +82,8 @@ table Calendário
 				    ComMesNumero = Table.AddColumn(ComAno, "Mês Nº", each Date.Month([Data]), Int64.Type),
 				    ComMes = Table.AddColumn(ComMesNumero, "Mês", each NomesMeses{Date.Month([Data]) - 1}, type text),
 				    ComAnoMes = Table.AddColumn(ComMes, "Ano-Mês", each Date.ToText([Data], "yyyy-MM"), type text),
-				    ComTrimestre = Table.AddColumn(ComAnoMes, "Trimestre", each "T" & Text.From(Date.QuarterOfYear([Data])), type text)
+				    ComTrimestre = Table.AddColumn(ComAnoMes, "Trimestre", each "T" & Text.From(Date.QuarterOfYear([Data])), type text),
+				    ComDia = Table.AddColumn(ComTrimestre, "Dia", each Date.Day([Data]), Int64.Type)
 				in
-				    ComTrimestre
+				    ComDia
 				```
