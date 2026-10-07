@@ -16,13 +16,16 @@ table 'Fluxo de Caixa'
 		formatString: \R$ #,##0.00
 		displayFolder: Caixa
 
-	/// Fluxo líquido somado desde o início do período selecionado.
+	/// Fluxo líquido somado desde o início do período selecionado; vazio em datas futuras.
 	measure 'Saldo Acumulado' = ```
-			CALCULATE(
-			    [Fluxo Líquido],
-			    FILTER(
-			        ALLSELECTED('Calendário'[Data]),
-			        'Calendário'[Data] <= MAX('Calendário'[Data])
+			IF(
+			    MIN('Calendário'[Data]) <= TODAY(),
+			    CALCULATE(
+			        [Fluxo Líquido],
+			        FILTER(
+			            ALLSELECTED('Calendário'[Data]),
+			            'Calendário'[Data] <= MAX('Calendário'[Data])
+			        )
 			    )
 			)
 			```
