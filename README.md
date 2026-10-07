@@ -171,7 +171,7 @@ O aplicativo do Bling de cada conta precisa dos escopos de **Finanças** (contas
 
 ### Relatório Power BI
 
-O relatório fica em `powerbi/` no formato de projeto do Power BI (PBIP: modelo em TMDL e páginas em PBIR, arquivos de texto versionáveis). Páginas: Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas. Todas têm o filtro **Empresa** (uma, outra ou as duas) e **Ano**, sincronizados entre as páginas.
+O relatório fica em `powerbi/` no formato de projeto do Power BI (PBIP: modelo em TMDL e páginas em PBIR, arquivos de texto versionáveis). O relatório funciona como uma apresentação: abre numa **Capa** com os números principais e botões para cada assunto, seguida dos slides Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas. Cada slide tem um menu no topo, botões **Anterior**/**Próximo** e uma frase-resumo que muda conforme os filtros. Todas as páginas têm os filtros **Empresa** (uma, outra ou as duas), **Ano**, **Mês** e **Dia**, sincronizados entre as páginas, e o botão **Limpar filtros**. No Power BI Desktop, segure Ctrl ao clicar nos botões.
 
 Para abrir em um desktop:
 

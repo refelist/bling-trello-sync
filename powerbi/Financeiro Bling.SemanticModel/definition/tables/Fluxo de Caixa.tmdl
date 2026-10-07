@@ -32,6 +32,17 @@ table 'Fluxo de Caixa'
 		formatString: \R$ #,##0.00
 		displayFolder: Caixa
 
+	/// Frase-resumo do slide Fluxo de Caixa.
+	measure 'Manchete Fluxo' = ```
+			VAR Ent = COALESCE([Entradas], 0)
+			VAR Sai = COALESCE([Saídas], 0)
+			VAR Liq = Ent - Sai
+			RETURN
+			    "Entraram " & IF(ABS(Ent) >= 1000000, FORMAT(Ent / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Ent) >= 1000, FORMAT(Ent / 1000, "\R$ #,##0.0") & " mil", FORMAT(Ent, "\R$ #,##0"))) & " e saíram " & IF(ABS(Sai) >= 1000000, FORMAT(Sai / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Sai) >= 1000, FORMAT(Sai / 1000, "\R$ #,##0.0") & " mil", FORMAT(Sai, "\R$ #,##0")))
+			        & ": o caixa " & IF(Liq >= 0, "cresceu ", "diminuiu ") & IF(ABS(ABS(Liq)) >= 1000000, FORMAT(ABS(Liq) / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(ABS(Liq)) >= 1000, FORMAT(ABS(Liq) / 1000, "\R$ #,##0.0") & " mil", FORMAT(ABS(Liq), "\R$ #,##0")))
+			```
+		displayFolder: Textos
+
 	column Empresa
 		dataType: string
 		sourceColumn: empresa

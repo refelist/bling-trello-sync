@@ -74,6 +74,54 @@ table DRE
 		formatString: 0.0%
 		displayFolder: Comparativos
 
+	/// Empresas e período escolhidos nos filtros, usado como subtítulo dos slides.
+	measure 'Texto Contexto' = ```
+			VAR Empresas = CONCATENATEX(VALUES(Empresa[Empresa]), Empresa[Empresa], " e ", Empresa[Empresa], ASC)
+			VAR Anos = IF(ISFILTERED('Calendário'[Ano]), CONCATENATEX(VALUES('Calendário'[Ano]), 'Calendário'[Ano], ", ", 'Calendário'[Ano], ASC))
+			VAR Meses = IF(ISFILTERED('Calendário'[Mês]), CONCATENATEX(SUMMARIZE('Calendário', 'Calendário'[Mês Nº], 'Calendário'[Mês]), 'Calendário'[Mês], ", ", 'Calendário'[Mês Nº], ASC))
+			VAR Dias = IF(ISFILTERED('Calendário'[Dia]), "dia " & CONCATENATEX(VALUES('Calendário'[Dia]), 'Calendário'[Dia], ", ", 'Calendário'[Dia], ASC))
+			VAR Periodo = Dias & IF(Dias <> "" && Meses <> "", " de ") & Meses & IF((Dias <> "" || Meses <> "") && Anos <> "", " de ") & Anos
+			RETURN Empresas & "   |   " & IF(Periodo = "", "todo o período coletado", Periodo)
+			```
+		displayFolder: Textos
+
+	/// Frase-resumo do slide Visão Geral, que muda conforme os filtros.
+	measure 'Manchete Visão Geral' = ```
+			VAR Fat = COALESCE([Faturamento], 0)
+			VAR Res = COALESCE([Resultado], 0)
+			VAR Margem = [Margem %]
+			RETURN
+			    "Faturamento de " & IF(ABS(Fat) >= 1000000, FORMAT(Fat / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Fat) >= 1000, FORMAT(Fat / 1000, "\R$ #,##0.0") & " mil", FORMAT(Fat, "\R$ #,##0"))) & " e resultado de " & IF(ABS(Res) >= 1000000, FORMAT(Res / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Res) >= 1000, FORMAT(Res / 1000, "\R$ #,##0.0") & " mil", FORMAT(Res, "\R$ #,##0")))
+			        & IF(NOT ISBLANK(Margem), " (margem de " & FORMAT(Margem, "0.0%") & ")")
+			```
+		displayFolder: Textos
+
+	/// Frase-resumo do slide DRE.
+	measure 'Manchete DRE' = ```
+			VAR Rec = COALESCE([Receita Bruta], 0)
+			VAR Desp = COALESCE([Despesas], 0)
+			VAR Res = Rec - Desp
+			RETURN
+			    "Receitas de " & IF(ABS(Rec) >= 1000000, FORMAT(Rec / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Rec) >= 1000, FORMAT(Rec / 1000, "\R$ #,##0.0") & " mil", FORMAT(Rec, "\R$ #,##0"))) & " contra despesas de " & IF(ABS(Desp) >= 1000000, FORMAT(Desp / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Desp) >= 1000, FORMAT(Desp / 1000, "\R$ #,##0.0") & " mil", FORMAT(Desp, "\R$ #,##0")))
+			        & ": " & IF(Res >= 0, "lucro", "prejuízo") & " de " & IF(ABS(ABS(Res)) >= 1000000, FORMAT(ABS(Res) / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(ABS(Res)) >= 1000, FORMAT(ABS(Res) / 1000, "\R$ #,##0.0") & " mil", FORMAT(ABS(Res), "\R$ #,##0")))
+			```
+		displayFolder: Textos
+
+	/// Frase-resumo do slide Gastos e Receitas: a categoria com o maior gasto.
+	measure 'Manchete Gastos' = ```
+			VAR Maior = TOPN(1, VALUES(DRE[Categoria]), [Despesas], DESC)
+			VAR Categoria = MAXX(Maior, DRE[Categoria])
+			VAR Valor = MAXX(Maior, [Despesas])
+			RETURN
+			    IF(
+			        COALESCE(Valor, 0) <= 0,
+			        "Nenhum gasto no período escolhido",
+			        "Maior gasto: " & Categoria & ", com " & IF(ABS(Valor) >= 1000000, FORMAT(Valor / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Valor) >= 1000, FORMAT(Valor / 1000, "\R$ #,##0.0") & " mil", FORMAT(Valor, "\R$ #,##0")))
+			            & " (" & FORMAT(DIVIDE(Valor, [Despesas]), "0%") & " de todos os gastos)"
+			    )
+			```
+		displayFolder: Textos
+
 	column Empresa
 		dataType: string
 		sourceColumn: empresa

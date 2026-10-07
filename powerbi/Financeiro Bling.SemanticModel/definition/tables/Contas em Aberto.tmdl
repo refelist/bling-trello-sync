@@ -46,6 +46,28 @@ table 'Contas em Aberto'
 		formatString: \R$ #,##0.00
 		displayFolder: Prazos
 
+	/// Frase-resumo do slide Contas a Pagar.
+	measure 'Manchete Pagar' = ```
+			VAR Aberto = COALESCE([A Pagar em Aberto], 0)
+			VAR Vencido = COALESCE([Pagar Vencido], 0)
+			VAR Proximos = COALESCE([Pagar 30 dias], 0)
+			RETURN
+			    IF(ABS(Aberto) >= 1000000, FORMAT(Aberto / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Aberto) >= 1000, FORMAT(Aberto / 1000, "\R$ #,##0.0") & " mil", FORMAT(Aberto, "\R$ #,##0"))) & " a pagar em aberto: " & IF(ABS(Vencido) >= 1000000, FORMAT(Vencido / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Vencido) >= 1000, FORMAT(Vencido / 1000, "\R$ #,##0.0") & " mil", FORMAT(Vencido, "\R$ #,##0")))
+			        & " já vencidos e " & IF(ABS(Proximos) >= 1000000, FORMAT(Proximos / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Proximos) >= 1000, FORMAT(Proximos / 1000, "\R$ #,##0.0") & " mil", FORMAT(Proximos, "\R$ #,##0"))) & " vencendo nos próximos 30 dias"
+			```
+		displayFolder: Textos
+
+	/// Frase-resumo do slide Contas a Receber.
+	measure 'Manchete Receber' = ```
+			VAR Aberto = COALESCE([A Receber em Aberto], 0)
+			VAR Vencido = COALESCE([Receber Vencido], 0)
+			VAR Proximos = COALESCE([Receber 30 dias], 0)
+			RETURN
+			    IF(ABS(Aberto) >= 1000000, FORMAT(Aberto / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Aberto) >= 1000, FORMAT(Aberto / 1000, "\R$ #,##0.0") & " mil", FORMAT(Aberto, "\R$ #,##0"))) & " a receber em aberto: " & IF(ABS(Vencido) >= 1000000, FORMAT(Vencido / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Vencido) >= 1000, FORMAT(Vencido / 1000, "\R$ #,##0.0") & " mil", FORMAT(Vencido, "\R$ #,##0")))
+			        & " já vencidos e " & IF(ABS(Proximos) >= 1000000, FORMAT(Proximos / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Proximos) >= 1000, FORMAT(Proximos / 1000, "\R$ #,##0.0") & " mil", FORMAT(Proximos, "\R$ #,##0"))) & " vencendo nos próximos 30 dias"
+			```
+		displayFolder: Textos
+
 	column Empresa
 		dataType: string
 		sourceColumn: empresa
