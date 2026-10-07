@@ -2,79 +2,142 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
   "name": "5758075f973f7491c4a1",
   "position": {
-    "x": 24,
-    "y": 104,
+    "x": 204,
+    "y": 6,
     "z": 3000,
-    "height": 112,
-    "width": 1232,
+    "height": 44,
+    "width": 60,
     "tabOrder": 3000
   },
   "visual": {
-    "visualType": "cardVisual",
-    "query": {
-      "queryState": {
-        "Data": {
-          "projections": [
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Receita Bruta"
-                }
-              },
-              "queryRef": "DRE.Receita Bruta",
-              "nativeQueryRef": "Receita Bruta",
-              "displayName": "Receitas"
-            },
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Despesas"
-                }
-              },
-              "queryRef": "DRE.Despesas",
-              "nativeQueryRef": "Despesas",
-              "displayName": "Gastos"
-            },
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Resultado"
-                }
-              },
-              "queryRef": "DRE.Resultado",
-              "nativeQueryRef": "Resultado"
-            }
-          ]
-        }
-      }
-    },
+    "visualType": "actionButton",
     "objects": {
-      "value": [
+      "text": [
         {
           "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'DRE'"
+                }
+              }
+            },
             "fontSize": {
               "expr": {
                 "Literal": {
-                  "Value": "20D"
+                  "Value": "10D"
+                }
+              }
+            },
+            "bold": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
                 }
               }
             },
             "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            },
+            "horizontalAlignment": {
+              "expr": {
+                "Literal": {
+                  "Value": "'center'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "shapeType": {
+              "expr": {
+                "Literal": {
+                  "Value": "'blank'"
+                }
+              }
+            },
+            "placement": {
+              "expr": {
+                "Literal": {
+                  "Value": "'left'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        }
+      ],
+      "fill": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
               "solid": {
                 "color": {
                   "expr": {
@@ -84,49 +147,8 @@
                   }
                 }
               }
-            }
-          },
-          "selector": {
-            "id": "default"
-          }
-        }
-      ],
-      "label": [
-        {
-          "properties": {
-            "fontSize": {
-              "expr": {
-                "Literal": {
-                  "Value": "11D"
-                }
-              }
-            }
-          },
-          "selector": {
-            "id": "default"
-          }
-        }
-      ],
-      "padding": [
-        {
-          "properties": {
-            "paddingUniform": {
-              "expr": {
-                "Literal": {
-                  "Value": "8D"
-                }
-              }
-            }
-          },
-          "selector": {
-            "id": "default"
-          }
-        }
-      ],
-      "layout": [
-        {
-          "properties": {
-            "paddingUniform": {
+            },
+            "transparency": {
               "expr": {
                 "Literal": {
                   "Value": "0D"
@@ -137,68 +159,34 @@
           "selector": {
             "id": "default"
           }
-        }
-      ]
-    },
-    "visualContainerObjects": {
-      "padding": [
+        },
         {
           "properties": {
-            "top": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#2F6497'"
+                    }
+                  }
                 }
               }
             },
-            "bottom": {
+            "transparency": {
               "expr": {
                 "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "left": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "right": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "spacing": [
-        {
-          "properties": {
-            "customizeSpacing": {
-              "expr": {
-                "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "verticalSpacing": {
-              "expr": {
-                "Literal": {
-                  "Value": "2D"
+                  "Value": "0D"
                 }
               }
             }
           },
           "selector": {
-            "id": "default"
+            "id": "hover"
           }
         }
       ],
-      "title": [
+      "outline": [
         {
           "properties": {
             "show": {
@@ -210,7 +198,105 @@
             }
           }
         }
+      ],
+      "shape": [
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            },
+            "roundEdge": {
+              "expr": {
+                "Literal": {
+                  "Value": "8L"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        }
       ]
-    }
+    },
+    "visualContainerObjects": {
+      "background": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "border": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "visualLink": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "type": {
+              "expr": {
+                "Literal": {
+                  "Value": "'PageNavigation'"
+                }
+              }
+            },
+            "navigationSection": {
+              "expr": {
+                "Literal": {
+                  "Value": "'a9145d7c8467c2fa58c7'"
+                }
+              }
+            },
+            "tooltip": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Ir para DRE'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true,
+    "howCreated": "InsertVisualButton"
   }
 }

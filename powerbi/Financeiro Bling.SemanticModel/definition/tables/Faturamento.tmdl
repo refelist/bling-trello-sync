@@ -52,6 +52,16 @@ table Faturamento
 		formatString: 0.0%
 		displayFolder: Comparativos
 
+	/// Frase-resumo do slide Faturamento.
+	measure 'Manchete Faturamento' = ```
+			VAR Fat = COALESCE([Faturamento], 0)
+			VAR Ticket = COALESCE([Ticket Médio], 0)
+			RETURN
+			    IF(ABS(Fat) >= 1000000, FORMAT(Fat / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Fat) >= 1000, FORMAT(Fat / 1000, "\R$ #,##0.0") & " mil", FORMAT(Fat, "\R$ #,##0"))) & " faturados em " & FORMAT(COALESCE([Qtde de Pedidos], 0), "#,##0")
+			        & " pedidos, com ticket médio de " & IF(ABS(Ticket) >= 1000000, FORMAT(Ticket / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Ticket) >= 1000, FORMAT(Ticket / 1000, "\R$ #,##0.0") & " mil", FORMAT(Ticket, "\R$ #,##0")))
+			```
+		displayFolder: Textos
+
 	column Empresa
 		dataType: string
 		sourceColumn: empresa

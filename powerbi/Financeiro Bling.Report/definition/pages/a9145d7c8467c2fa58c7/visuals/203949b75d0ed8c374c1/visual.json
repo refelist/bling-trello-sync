@@ -2,90 +2,191 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
   "name": "203949b75d0ed8c374c1",
   "position": {
-    "x": 840,
-    "y": 232,
+    "x": 402,
+    "y": 6,
     "z": 5000,
-    "height": 232,
-    "width": 416,
+    "height": 44,
+    "width": 120,
     "tabOrder": 5000
   },
   "visual": {
-    "visualType": "clusteredColumnChart",
-    "query": {
-      "queryState": {
-        "Category": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "Calendário"
-                    }
-                  },
-                  "Property": "Ano-Mês"
+    "visualType": "actionButton",
+    "objects": {
+      "text": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
                 }
-              },
-              "queryRef": "Calendário.Ano-Mês",
-              "nativeQueryRef": "Ano-Mês",
-              "displayName": "Mês"
+              }
             }
-          ]
+          }
         },
-        "Y": {
-          "projections": [
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Receita Bruta"
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Faturamento'"
                 }
-              },
-              "queryRef": "DRE.Receita Bruta",
-              "nativeQueryRef": "Receita Bruta"
-            },
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Despesas"
-                }
-              },
-              "queryRef": "DRE.Despesas",
-              "nativeQueryRef": "Despesas"
-            }
-          ]
-        }
-      },
-      "sortDefinition": {
-        "sort": [
-          {
-            "field": {
-              "Column": {
-                "Expression": {
-                  "SourceRef": {
-                    "Entity": "Calendário"
-                  }
-                },
-                "Property": "Ano-Mês"
               }
             },
-            "direction": "Ascending"
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "10D"
+                }
+              }
+            },
+            "bold": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            },
+            "horizontalAlignment": {
+              "expr": {
+                "Literal": {
+                  "Value": "'center'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
           }
-        ],
-        "isDefaultSort": true
-      }
-    },
-    "objects": {
-      "labels": [
+        },
+        {
+          "properties": {
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "shapeType": {
+              "expr": {
+                "Literal": {
+                  "Value": "'blank'"
+                }
+              }
+            },
+            "placement": {
+              "expr": {
+                "Literal": {
+                  "Value": "'left'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        }
+      ],
+      "fill": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#1F4E79'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#2F6497'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "outline": [
         {
           "properties": {
             "show": {
@@ -98,61 +199,37 @@
           }
         }
       ],
-      "dataPoint": [
+      "shape": [
         {
           "properties": {
-            "fill": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#1F7A4D'"
-                    }
-                  }
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            },
+            "roundEdge": {
+              "expr": {
+                "Literal": {
+                  "Value": "8L"
                 }
               }
             }
-          },
-          "selector": {
-            "metadata": "DRE.Receita Bruta"
           }
         },
         {
           "properties": {
-            "fill": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#C0392B'"
-                    }
-                  }
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
                 }
               }
             }
           },
           "selector": {
-            "metadata": "DRE.Despesas"
-          }
-        }
-      ],
-      "legend": [
-        {
-          "properties": {
-            "show": {
-              "expr": {
-                "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "position": {
-              "expr": {
-                "Literal": {
-                  "Value": "'Top'"
-                }
-              }
-            }
+            "id": "default"
           }
         }
       ]
@@ -164,18 +241,7 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#FFFFFF'"
-                    }
-                  }
+                  "Value": "false"
                 }
               }
             }
@@ -188,66 +254,14 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#DDE2EA'"
-                    }
-                  }
-                }
-              }
-            },
-            "radius": {
-              "expr": {
-                "Literal": {
-                  "Value": "8D"
+                  "Value": "false"
                 }
               }
             }
           }
         }
       ],
-      "padding": [
-        {
-          "properties": {
-            "top": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "bottom": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "left": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "right": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "title": [
+      "visualLink": [
         {
           "properties": {
             "show": {
@@ -257,30 +271,32 @@
                 }
               }
             },
-            "text": {
+            "type": {
               "expr": {
                 "Literal": {
-                  "Value": "'Receitas x despesas'"
+                  "Value": "'PageNavigation'"
                 }
               }
             },
-            "fontSize": {
+            "navigationSection": {
               "expr": {
                 "Literal": {
-                  "Value": "12D"
+                  "Value": "'9bb59b536bd760fc9dfd'"
                 }
               }
             },
-            "bold": {
+            "tooltip": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
+                  "Value": "'Ir para Faturamento'"
                 }
               }
             }
           }
         }
       ]
-    }
+    },
+    "drillFilterOtherVisuals": true,
+    "howCreated": "InsertVisualButton"
   }
 }

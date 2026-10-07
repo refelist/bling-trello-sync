@@ -2,84 +2,20 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
   "name": "8e24755c3566b00c1092",
   "position": {
-    "x": 24,
-    "y": 480,
+    "x": 526,
+    "y": 6,
     "z": 6000,
-    "height": 224,
-    "width": 608,
+    "height": 44,
+    "width": 140,
     "tabOrder": 6000
   },
   "visual": {
-    "visualType": "pivotTable",
-    "query": {
-      "queryState": {
-        "Rows": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "Contas em Aberto"
-                    }
-                  },
-                  "Property": "Contato"
-                }
-              },
-              "queryRef": "Contas em Aberto.Contato",
-              "nativeQueryRef": "Contato",
-              "displayName": "Clientes"
-            }
-          ]
-        },
-        "Values": {
-          "projections": [
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "Contas em Aberto"
-                    }
-                  },
-                  "Property": "A Receber em Aberto"
-                }
-              },
-              "queryRef": "Contas em Aberto.A Receber em Aberto",
-              "nativeQueryRef": "A Receber em Aberto",
-              "displayName": "Em aberto"
-            },
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "Contas em Aberto"
-                    }
-                  },
-                  "Property": "Receber Vencido"
-                }
-              },
-              "queryRef": "Contas em Aberto.Receber Vencido",
-              "nativeQueryRef": "Receber Vencido",
-              "displayName": "Vencido"
-            }
-          ]
-        }
-      }
-    },
+    "visualType": "actionButton",
     "objects": {
-      "columnHeaders": [
+      "text": [
         {
           "properties": {
-            "columnAdjustment": {
-              "expr": {
-                "Literal": {
-                  "Value": "'growToFit'"
-                }
-              }
-            },
-            "autoSizeColumnWidth": {
+            "show": {
               "expr": {
                 "Literal": {
                   "Value": "true"
@@ -87,18 +23,213 @@
               }
             }
           }
-        }
-      ],
-      "rowHeaders": [
+        },
         {
           "properties": {
-            "stepped": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Contas a Pagar'"
+                }
+              }
+            },
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "10D"
+                }
+              }
+            },
+            "bold": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            },
+            "horizontalAlignment": {
+              "expr": {
+                "Literal": {
+                  "Value": "'center'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "shapeType": {
+              "expr": {
+                "Literal": {
+                  "Value": "'blank'"
+                }
+              }
+            },
+            "placement": {
+              "expr": {
+                "Literal": {
+                  "Value": "'left'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        }
+      ],
+      "fill": [
+        {
+          "properties": {
+            "show": {
               "expr": {
                 "Literal": {
                   "Value": "true"
                 }
               }
             }
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#1F4E79'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#2F6497'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "outline": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "shape": [
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            },
+            "roundEdge": {
+              "expr": {
+                "Literal": {
+                  "Value": "8L"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
           }
         }
       ]
@@ -110,18 +241,7 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#FFFFFF'"
-                    }
-                  }
+                  "Value": "false"
                 }
               }
             }
@@ -134,66 +254,14 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#DDE2EA'"
-                    }
-                  }
-                }
-              }
-            },
-            "radius": {
-              "expr": {
-                "Literal": {
-                  "Value": "8D"
+                  "Value": "false"
                 }
               }
             }
           }
         }
       ],
-      "padding": [
-        {
-          "properties": {
-            "top": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "bottom": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "left": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "right": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "title": [
+      "visualLink": [
         {
           "properties": {
             "show": {
@@ -203,30 +271,32 @@
                 }
               }
             },
-            "text": {
+            "type": {
               "expr": {
                 "Literal": {
-                  "Value": "'Clientes'"
+                  "Value": "'PageNavigation'"
                 }
               }
             },
-            "fontSize": {
+            "navigationSection": {
               "expr": {
                 "Literal": {
-                  "Value": "12D"
+                  "Value": "'d7b6e81d16120e85a3a5'"
                 }
               }
             },
-            "bold": {
+            "tooltip": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
+                  "Value": "'Ir para Contas a Pagar'"
                 }
               }
             }
           }
         }
       ]
-    }
+    },
+    "drillFilterOtherVisuals": true,
+    "howCreated": "InsertVisualButton"
   }
 }

@@ -41,6 +41,13 @@ table Calendário
 		summarizeBy: none
 		sourceColumn: Ano-Mês
 
+	/// Mês e ano abreviados (out/25), para rótulos curtos nos eixos dos gráficos.
+	column 'Mês/Ano'
+		dataType: string
+		summarizeBy: none
+		sortByColumn: 'Ano-Mês'
+		sourceColumn: Mês/Ano
+
 	column Trimestre
 		dataType: string
 		summarizeBy: none
@@ -83,7 +90,8 @@ table Calendário
 				    ComMes = Table.AddColumn(ComMesNumero, "Mês", each NomesMeses{Date.Month([Data]) - 1}, type text),
 				    ComAnoMes = Table.AddColumn(ComMes, "Ano-Mês", each Date.ToText([Data], "yyyy-MM"), type text),
 				    ComTrimestre = Table.AddColumn(ComAnoMes, "Trimestre", each "T" & Text.From(Date.QuarterOfYear([Data])), type text),
-				    ComDia = Table.AddColumn(ComTrimestre, "Dia", each Date.Day([Data]), Int64.Type)
+				    ComDia = Table.AddColumn(ComTrimestre, "Dia", each Date.Day([Data]), Int64.Type),
+				    ComMesAno = Table.AddColumn(ComDia, "Mês/Ano", each NomesMeses{Date.Month([Data]) - 1} & "/" & Text.End(Text.From(Date.Year([Data])), 2), type text)
 				in
-				    ComDia
+				    ComMesAno
 				```

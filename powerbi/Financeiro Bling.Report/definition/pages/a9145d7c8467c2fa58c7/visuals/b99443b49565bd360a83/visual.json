@@ -2,101 +2,20 @@
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
   "name": "b99443b49565bd360a83",
   "position": {
-    "x": 24,
-    "y": 232,
+    "x": 268,
+    "y": 6,
     "z": 4000,
-    "height": 472,
-    "width": 800,
+    "height": 44,
+    "width": 130,
     "tabOrder": 4000
   },
   "visual": {
-    "visualType": "pivotTable",
-    "query": {
-      "queryState": {
-        "Rows": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Natureza"
-                }
-              },
-              "queryRef": "DRE.Natureza",
-              "nativeQueryRef": "Natureza"
-            },
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Categoria"
-                }
-              },
-              "queryRef": "DRE.Categoria",
-              "nativeQueryRef": "Categoria"
-            }
-          ]
-        },
-        "Values": {
-          "projections": [
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "DRE"
-                    }
-                  },
-                  "Property": "Resultado"
-                }
-              },
-              "queryRef": "DRE.Resultado",
-              "nativeQueryRef": "Resultado",
-              "displayName": "Valor"
-            }
-          ]
-        },
-        "Columns": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "Calendário"
-                    }
-                  },
-                  "Property": "Ano-Mês"
-                }
-              },
-              "queryRef": "Calendário.Ano-Mês",
-              "nativeQueryRef": "Ano-Mês",
-              "displayName": "Mês"
-            }
-          ]
-        }
-      }
-    },
+    "visualType": "actionButton",
     "objects": {
-      "columnHeaders": [
+      "text": [
         {
           "properties": {
-            "columnAdjustment": {
-              "expr": {
-                "Literal": {
-                  "Value": "'growToFit'"
-                }
-              }
-            },
-            "autoSizeColumnWidth": {
+            "show": {
               "expr": {
                 "Literal": {
                   "Value": "true"
@@ -104,18 +23,213 @@
               }
             }
           }
-        }
-      ],
-      "rowHeaders": [
+        },
         {
           "properties": {
-            "stepped": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Fluxo de Caixa'"
+                }
+              }
+            },
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "10D"
+                }
+              }
+            },
+            "bold": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            },
+            "horizontalAlignment": {
+              "expr": {
+                "Literal": {
+                  "Value": "'center'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fontColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#FFFFFF'"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "shapeType": {
+              "expr": {
+                "Literal": {
+                  "Value": "'blank'"
+                }
+              }
+            },
+            "placement": {
+              "expr": {
+                "Literal": {
+                  "Value": "'left'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        }
+      ],
+      "fill": [
+        {
+          "properties": {
+            "show": {
               "expr": {
                 "Literal": {
                   "Value": "true"
                 }
               }
             }
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#1F4E79'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
+          }
+        },
+        {
+          "properties": {
+            "fillColor": {
+              "solid": {
+                "color": {
+                  "expr": {
+                    "Literal": {
+                      "Value": "'#2F6497'"
+                    }
+                  }
+                }
+              }
+            },
+            "transparency": {
+              "expr": {
+                "Literal": {
+                  "Value": "0D"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "hover"
+          }
+        }
+      ],
+      "outline": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "shape": [
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            },
+            "roundEdge": {
+              "expr": {
+                "Literal": {
+                  "Value": "8L"
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "tileShape": {
+              "expr": {
+                "Literal": {
+                  "Value": "'rectangleRounded'"
+                }
+              }
+            }
+          },
+          "selector": {
+            "id": "default"
           }
         }
       ]
@@ -127,18 +241,7 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#FFFFFF'"
-                    }
-                  }
+                  "Value": "false"
                 }
               }
             }
@@ -151,66 +254,14 @@
             "show": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
-            "color": {
-              "solid": {
-                "color": {
-                  "expr": {
-                    "Literal": {
-                      "Value": "'#DDE2EA'"
-                    }
-                  }
-                }
-              }
-            },
-            "radius": {
-              "expr": {
-                "Literal": {
-                  "Value": "8D"
+                  "Value": "false"
                 }
               }
             }
           }
         }
       ],
-      "padding": [
-        {
-          "properties": {
-            "top": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "bottom": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "left": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            },
-            "right": {
-              "expr": {
-                "Literal": {
-                  "Value": "10D"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "title": [
+      "visualLink": [
         {
           "properties": {
             "show": {
@@ -220,30 +271,32 @@
                 }
               }
             },
-            "text": {
+            "type": {
               "expr": {
                 "Literal": {
-                  "Value": "'Demonstrativo por categoria e mês (competência)'"
+                  "Value": "'PageNavigation'"
                 }
               }
             },
-            "fontSize": {
+            "navigationSection": {
               "expr": {
                 "Literal": {
-                  "Value": "12D"
+                  "Value": "'cb2708567c8d1fd900f9'"
                 }
               }
             },
-            "bold": {
+            "tooltip": {
               "expr": {
                 "Literal": {
-                  "Value": "true"
+                  "Value": "'Ir para Fluxo de Caixa'"
                 }
               }
             }
           }
         }
       ]
-    }
+    },
+    "drillFilterOtherVisuals": true,
+    "howCreated": "InsertVisualButton"
   }
 }
