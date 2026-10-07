@@ -1,18 +1,18 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
-  "name": "43f7d15bd4a564643d94",
+  "name": "05b92b67978c4cb9ece8",
   "position": {
-    "x": 752,
+    "x": 928,
     "y": 8,
-    "z": 2000,
+    "z": 7000,
     "height": 80,
     "width": 160,
-    "tabOrder": 2000
+    "tabOrder": 7000
   },
   "visual": {
     "visualType": "slicer",
     "syncGroup": {
-      "groupName": "Ano",
+      "groupName": "Mês",
       "fieldChanges": true,
       "filterChanges": true
     },
@@ -28,11 +28,11 @@
                       "Entity": "Calendário"
                     }
                   },
-                  "Property": "Ano"
+                  "Property": "Mês"
                 }
               },
-              "queryRef": "Calendário.Ano",
-              "nativeQueryRef": "Ano"
+              "queryRef": "Calendário.Mês",
+              "nativeQueryRef": "Mês"
             }
           ]
         }
@@ -65,7 +65,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'Ano'"
+                  "Value": "'Mês'"
                 }
               }
             }
