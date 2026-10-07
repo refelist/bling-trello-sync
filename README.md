@@ -169,6 +169,19 @@ Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `cat
 
 O aplicativo do Bling de cada conta precisa dos escopos de **Finanças** (contas a pagar, contas a receber, categorias de receitas e despesas, contas financeiras e formas de pagamento); sem eles a API responde 403.
 
+### Relatório Power BI
+
+O relatório fica em `powerbi/` no formato de projeto do Power BI (PBIP: modelo em TMDL e páginas em PBIR, arquivos de texto versionáveis). Páginas: Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas. Todas têm o filtro **Empresa** (uma, outra ou as duas) e **Ano**, sincronizados entre as páginas.
+
+Para abrir em um desktop:
+
+1. Instale o Power BI Desktop (Microsoft Store) e, em *Arquivo > Opções > Recursos de visualização*, ative **Formato de relatório avançado (PBIR)** e **Armazenar modelo semântico usando o formato TMDL**; reinicie.
+2. Abra um túnel SSH até o servidor e deixe a janela aberta: `ssh -N -L 5432:localhost:5432 root@<ip-do-servidor>`.
+3. Abra `powerbi/Financeiro Bling.pbip`. Os parâmetros `Servidor` (`localhost:5432`) e `Banco` (`financeiro`) já apontam para o túnel; em *Transformar dados > Configurações da fonte de dados* informe o usuário `powerbi` e a senha dele (tipo **Banco de dados**). Clique em **Atualizar**.
+4. Para ter um único arquivo, use *Arquivo > Salvar como* e escolha **.pbix**. Cada desktop pode abrir o mesmo `.pbix` (por exemplo numa pasta do OneDrive) e atualizar os dados pelo túnel.
+
+O DRE soma pela data de competência e o fluxo de caixa pela data em que o valor foi efetivamente pago ou recebido.
+
 ## Testes
 
 ```bash

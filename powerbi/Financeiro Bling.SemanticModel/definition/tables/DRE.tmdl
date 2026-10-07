@@ -1,0 +1,79 @@
+/// Receitas e despesas por categoria e competência (visão vw_dre). Receita entra positiva e despesa negativa.
+table DRE
+
+	/// Total das receitas lançadas na competência.
+	measure 'Receita Bruta' = CALCULATE(SUM(DRE[Valor com Sinal]), DRE[Natureza] = "receita")
+		formatString: \R$ #,##0.00
+		displayFolder: DRE
+
+	/// Total das despesas lançadas na competência, em valor positivo.
+	measure Despesas = -CALCULATE(SUM(DRE[Valor com Sinal]), DRE[Natureza] = "despesa")
+		formatString: \R$ #,##0.00
+		displayFolder: DRE
+
+	/// Receita bruta menos despesas do período.
+	measure Resultado = SUM(DRE[Valor com Sinal])
+		formatString: \R$ #,##0.00
+		displayFolder: DRE
+
+	/// Resultado dividido pela receita bruta.
+	measure 'Margem %' = DIVIDE([Resultado], [Receita Bruta])
+		formatString: 0.0%
+		displayFolder: DRE
+
+	/// Resultado acumulado desde o início do ano.
+	measure 'Resultado YTD' = TOTALYTD([Resultado], 'Calendário'[Data])
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Receita bruta no mesmo período do ano anterior.
+	measure 'Receita Bruta AA' = CALCULATE([Receita Bruta], SAMEPERIODLASTYEAR('Calendário'[Data]))
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Despesas no mesmo período do ano anterior.
+	measure 'Despesas AA' = CALCULATE([Despesas], SAMEPERIODLASTYEAR('Calendário'[Data]))
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Variação percentual da receita bruta contra o mesmo período do ano anterior.
+	measure 'Receita vs AA %' = DIVIDE([Receita Bruta] - [Receita Bruta AA], [Receita Bruta AA])
+		formatString: 0.0%
+		displayFolder: Comparativos
+
+	column Empresa
+		dataType: string
+		sourceColumn: empresa
+
+	column Competência
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: competencia
+
+	/// receita ou despesa.
+	column Natureza
+		dataType: string
+		sourceColumn: natureza
+
+	/// Categoria de receita ou despesa cadastrada no Bling.
+	column Categoria
+		dataType: string
+		sourceColumn: categoria
+
+	/// Valor positivo nas receitas e negativo nas despesas.
+	column 'Valor com Sinal'
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: valor
+
+	partition DRE = m
+		mode: import
+		source = ```
+				let
+				    // Lançamentos por categoria e competência, já com sinal de receita ou despesa.
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    #"Selecionada a visão de DRE" = Fonte{[Schema="public", Item="vw_dre"]}[Data]
+				in
+				    #"Selecionada a visão de DRE"
+				```

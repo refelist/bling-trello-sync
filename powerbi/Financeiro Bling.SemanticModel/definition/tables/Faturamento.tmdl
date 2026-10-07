@@ -1,0 +1,78 @@
+/// Pedidos de venda do Bling, usados como base do faturamento (visão vw_faturamento).
+table Faturamento
+
+	/// Valor total dos pedidos de venda no período.
+	measure Faturamento = SUM(Faturamento[Total do Pedido])
+		formatString: \R$ #,##0.00
+		displayFolder: Vendas
+
+	/// Quantidade de pedidos de venda no período.
+	measure 'Qtde de Pedidos' = COUNTROWS(Faturamento)
+		formatString: #,##0
+		displayFolder: Vendas
+
+	/// Faturamento dividido pela quantidade de pedidos.
+	measure 'Ticket Médio' = DIVIDE([Faturamento], [Qtde de Pedidos])
+		formatString: \R$ #,##0.00
+		displayFolder: Vendas
+
+	/// Faturamento acumulado desde o início do ano.
+	measure 'Faturamento YTD' = TOTALYTD([Faturamento], 'Calendário'[Data])
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Faturamento no mesmo período do ano anterior.
+	measure 'Faturamento AA' = CALCULATE([Faturamento], SAMEPERIODLASTYEAR('Calendário'[Data]))
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Variação percentual do faturamento contra o mesmo período do ano anterior.
+	measure 'Faturamento vs AA %' = DIVIDE([Faturamento] - [Faturamento AA], [Faturamento AA])
+		formatString: 0.0%
+		displayFolder: Comparativos
+
+	column Empresa
+		dataType: string
+		sourceColumn: empresa
+
+	column Data
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: data
+
+	column 'Número do Pedido'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: numero
+
+	column Cliente
+		dataType: string
+		sourceColumn: contato_nome
+
+	column 'Loja Id'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: loja_id
+
+	column 'Situação Id'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: situacao_id
+
+	column 'Total do Pedido'
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: total
+
+	partition Faturamento = m
+		mode: import
+		source = ```
+				let
+				    // Pedidos de venda com valor total, cliente e loja de origem.
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    #"Selecionada a visão de faturamento" = Fonte{[Schema="public", Item="vw_faturamento"]}[Data]
+				in
+				    #"Selecionada a visão de faturamento"
+				```

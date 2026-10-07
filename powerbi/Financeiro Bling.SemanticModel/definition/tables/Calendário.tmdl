@@ -1,0 +1,82 @@
+/// Calendário contínuo gerado a partir das datas existentes nos dados financeiros.
+table Calendário
+	dataCategory: Time
+
+	column Data
+		dataType: dateTime
+		isKey
+		formatString: Short Date
+		summarizeBy: none
+		sourceColumn: [Data]
+
+	column Ano
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: [Ano]
+
+	/// Número do mês, usado para ordenar o nome do mês.
+	column 'Mês Nº'
+		dataType: int64
+		isHidden
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: [Mês Nº]
+
+	column Mês
+		dataType: string
+		summarizeBy: none
+		sortByColumn: 'Mês Nº'
+		sourceColumn: [Mês]
+
+	/// Ano e mês no formato 2026-01, útil para ordenar eixos de gráficos.
+	column 'Ano-Mês'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Ano-Mês]
+
+	column Trimestre
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Trimestre]
+
+	hierarchy 'Ano > Mês'
+
+		level Ano
+			column: Ano
+
+		level Trimestre
+			column: Trimestre
+
+		level Mês
+			column: Mês
+
+	partition Calendário = calculated
+		mode: import
+		source = ```
+				VAR Datas =
+				    DISTINCT(
+				        UNION(
+				            SELECTCOLUMNS(Lançamentos, "Data", Lançamentos[Vencimento]),
+				            SELECTCOLUMNS(DRE, "Data", DRE[Competência]),
+				            SELECTCOLUMNS('Fluxo de Caixa', "Data", 'Fluxo de Caixa'[Data]),
+				            SELECTCOLUMNS('Contas em Aberto', "Data", 'Contas em Aberto'[Vencimento]),
+				            SELECTCOLUMNS(Faturamento, "Data", Faturamento[Data])
+				        )
+				    )
+				VAR DatasValidas = FILTER(Datas, NOT ISBLANK([Data]))
+				VAR PrimeiraData = MINX(DatasValidas, [Data])
+				VAR UltimaData = MAXX(DatasValidas, [Data])
+				VAR Inicio = IF(ISBLANK(PrimeiraData), DATE(YEAR(TODAY()), 1, 1), DATE(YEAR(PrimeiraData), 1, 1))
+				VAR Fim = IF(ISBLANK(UltimaData), DATE(YEAR(TODAY()), 12, 31), DATE(YEAR(UltimaData), 12, 31))
+				RETURN
+				    SELECTCOLUMNS(
+				        CALENDAR(Inicio, Fim),
+				        "Data", [Date],
+				        "Ano", YEAR([Date]),
+				        "Mês Nº", MONTH([Date]),
+				        "Mês", FORMAT([Date], "mmm"),
+				        "Ano-Mês", FORMAT([Date], "yyyy-mm"),
+				        "Trimestre", "T" & FORMAT([Date], "q")
+				    )
+				```

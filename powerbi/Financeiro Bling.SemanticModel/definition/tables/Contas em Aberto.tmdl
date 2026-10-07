@@ -1,0 +1,86 @@
+/// Saldo ainda não liquidado das contas a pagar e a receber, por vencimento (visão vw_contas_em_aberto).
+table 'Contas em Aberto'
+
+	/// Saldo de contas a receber ainda em aberto.
+	measure 'A Receber em Aberto' = CALCULATE(SUM('Contas em Aberto'[Valor em Aberto]), 'Contas em Aberto'[Natureza] = "receita")
+		formatString: \R$ #,##0.00
+		displayFolder: Em aberto
+
+	/// Saldo de contas a pagar ainda em aberto.
+	measure 'A Pagar em Aberto' = CALCULATE(SUM('Contas em Aberto'[Valor em Aberto]), 'Contas em Aberto'[Natureza] = "despesa")
+		formatString: \R$ #,##0.00
+		displayFolder: Em aberto
+
+	/// Diferença entre o que há para receber e o que há para pagar.
+	measure 'Saldo Previsto' = [A Receber em Aberto] - [A Pagar em Aberto]
+		formatString: \R$ #,##0.00
+		displayFolder: Em aberto
+
+	/// Contas a receber com vencimento anterior a hoje.
+	measure 'Receber Vencido' = CALCULATE([A Receber em Aberto], FILTER(ALL('Calendário'), 'Calendário'[Data] < TODAY()))
+		formatString: \R$ #,##0.00
+		displayFolder: Prazos
+
+	/// Contas a pagar com vencimento anterior a hoje.
+	measure 'Pagar Vencido' = CALCULATE([A Pagar em Aberto], FILTER(ALL('Calendário'), 'Calendário'[Data] < TODAY()))
+		formatString: \R$ #,##0.00
+		displayFolder: Prazos
+
+	/// Contas a receber que vencem de hoje até 30 dias.
+	measure 'Receber 30 dias' = ```
+			CALCULATE(
+			    [A Receber em Aberto],
+			    FILTER(ALL('Calendário'), 'Calendário'[Data] >= TODAY() && 'Calendário'[Data] <= TODAY() + 30)
+			)
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Prazos
+
+	/// Contas a pagar que vencem de hoje até 30 dias.
+	measure 'Pagar 30 dias' = ```
+			CALCULATE(
+			    [A Pagar em Aberto],
+			    FILTER(ALL('Calendário'), 'Calendário'[Data] >= TODAY() && 'Calendário'[Data] <= TODAY() + 30)
+			)
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Prazos
+
+	column Empresa
+		dataType: string
+		sourceColumn: empresa
+
+	/// receita (a receber) ou despesa (a pagar).
+	column Natureza
+		dataType: string
+		sourceColumn: natureza
+
+	column Vencimento
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: vencimento
+
+	column Categoria
+		dataType: string
+		sourceColumn: categoria
+
+	column Contato
+		dataType: string
+		sourceColumn: contato_nome
+
+	column 'Valor em Aberto'
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: valor_em_aberto
+
+	partition 'Contas em Aberto' = m
+		mode: import
+		source = ```
+				let
+				    // Títulos que ainda têm saldo a liquidar, com o vencimento de cada um.
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    #"Selecionada a visão de contas em aberto" = Fonte{[Schema="public", Item="vw_contas_em_aberto"]}[Data]
+				in
+				    #"Selecionada a visão de contas em aberto"
+				```

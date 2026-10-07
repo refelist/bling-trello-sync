@@ -1,0 +1,24 @@
+/// Empresas (contas do Bling) presentes nos dados. Usada no filtro de uma, outra ou ambas.
+table Empresa
+
+	column Empresa
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Empresa]
+
+	partition Empresa = calculated
+		mode: import
+		source = ```
+				SELECTCOLUMNS(
+				    DISTINCT(
+				        UNION(
+				            DISTINCT(Lançamentos[Empresa]),
+				            DISTINCT(DRE[Empresa]),
+				            DISTINCT('Fluxo de Caixa'[Empresa]),
+				            DISTINCT('Contas em Aberto'[Empresa]),
+				            DISTINCT(Faturamento[Empresa])
+				        )
+				    ),
+				    "Empresa", [Empresa]
+				)
+				```
