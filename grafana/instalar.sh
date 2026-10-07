@@ -96,6 +96,21 @@ if [ ! -s "$SENHA_GRAFANA_ARQ" ]; then
         admin reset-admin-password "$(cat "$SENHA_GRAFANA_ARQ")" >/dev/null
 fi
 
+if ! command -v caddy >/dev/null 2>&1; then
+    echo ">> Instalando o Caddy (HTTPS)"
+    apt-get install -y -q debian-keyring debian-archive-keyring curl >/dev/null
+    curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+        | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+        > /etc/apt/sources.list.d/caddy-stable.list
+    apt-get update -q >/dev/null
+    apt-get install -y -q caddy >/dev/null
+fi
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+    ufw allow 80/tcp >/dev/null
+    ufw allow 443/tcp >/dev/null
+fi
+
 if ! grep -q "^$DOMINIO" /etc/caddy/Caddyfile; then
     echo ">> Publicando https://$DOMINIO pelo Caddy"
     cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.antes-grafana
