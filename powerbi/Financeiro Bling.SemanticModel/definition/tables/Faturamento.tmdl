@@ -16,8 +16,29 @@ table Faturamento
 		formatString: \R$ #,##0.00
 		displayFolder: Vendas
 
-	/// Faturamento acumulado desde o início do ano.
-	measure 'Faturamento YTD' = TOTALYTD([Faturamento], 'Calendário'[Data])
+	/// Faturamento do início do ano até hoje, ou até o fim do período selecionado se ele terminar antes.
+	measure 'Faturamento YTD' = ```
+			VAR Referencia = MIN(MAX('Calendário'[Data]), TODAY())
+			RETURN
+			    IF(
+			        YEAR(Referencia) >= YEAR(MIN('Calendário'[Data])),
+			        CALCULATE([Faturamento], DATESBETWEEN('Calendário'[Data], DATE(YEAR(Referencia), 1, 1), Referencia))
+			    )
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Mesmo acumulado do ano anterior; vazio se os dados não cobrem o ano anterior inteiro.
+	measure 'Faturamento YTD AA' = ```
+			VAR Referencia = MIN(MAX('Calendário'[Data]), TODAY())
+			VAR Inicio = DATE(YEAR(Referencia) - 1, 1, 1)
+			VAR PrimeiraData = CALCULATE(MIN(Faturamento[Data]), REMOVEFILTERS('Calendário'))
+			RETURN
+			    IF(
+			        YEAR(Referencia) >= YEAR(MIN('Calendário'[Data])) && PrimeiraData <= Inicio,
+			        CALCULATE([Faturamento], DATESBETWEEN('Calendário'[Data], Inicio, EDATE(Referencia, -12)))
+			    )
+			```
 		formatString: \R$ #,##0.00
 		displayFolder: Comparativos
 
@@ -26,8 +47,8 @@ table Faturamento
 		formatString: \R$ #,##0.00
 		displayFolder: Comparativos
 
-	/// Variação percentual do faturamento contra o mesmo período do ano anterior.
-	measure 'Faturamento vs AA %' = DIVIDE([Faturamento] - [Faturamento AA], [Faturamento AA])
+	/// Variação do faturamento acumulado no ano contra o mesmo acumulado do ano anterior.
+	measure 'Faturamento vs AA %' = DIVIDE([Faturamento YTD] - [Faturamento YTD AA], [Faturamento YTD AA])
 		formatString: 0.0%
 		displayFolder: Comparativos
 

@@ -21,8 +21,41 @@ table DRE
 		formatString: 0.0%
 		displayFolder: DRE
 
-	/// Resultado acumulado desde o início do ano.
-	measure 'Resultado YTD' = TOTALYTD([Resultado], 'Calendário'[Data])
+	/// Resultado do início do ano até hoje, ou até o fim do período selecionado se ele terminar antes.
+	measure 'Resultado YTD' = ```
+			VAR Referencia = MIN(MAX('Calendário'[Data]), TODAY())
+			RETURN
+			    IF(
+			        YEAR(Referencia) >= YEAR(MIN('Calendário'[Data])),
+			        CALCULATE([Resultado], DATESBETWEEN('Calendário'[Data], DATE(YEAR(Referencia), 1, 1), Referencia))
+			    )
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Receita bruta do início do ano até hoje, ou até o fim do período selecionado se ele terminar antes.
+	measure 'Receita Bruta YTD' = ```
+			VAR Referencia = MIN(MAX('Calendário'[Data]), TODAY())
+			RETURN
+			    IF(
+			        YEAR(Referencia) >= YEAR(MIN('Calendário'[Data])),
+			        CALCULATE([Receita Bruta], DATESBETWEEN('Calendário'[Data], DATE(YEAR(Referencia), 1, 1), Referencia))
+			    )
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Comparativos
+
+	/// Mesmo acumulado do ano anterior; vazio se os dados não cobrem o ano anterior inteiro.
+	measure 'Receita Bruta YTD AA' = ```
+			VAR Referencia = MIN(MAX('Calendário'[Data]), TODAY())
+			VAR Inicio = DATE(YEAR(Referencia) - 1, 1, 1)
+			VAR PrimeiraData = CALCULATE(MIN(DRE[Competência]), REMOVEFILTERS('Calendário'))
+			RETURN
+			    IF(
+			        YEAR(Referencia) >= YEAR(MIN('Calendário'[Data])) && PrimeiraData <= Inicio,
+			        CALCULATE([Receita Bruta], DATESBETWEEN('Calendário'[Data], Inicio, EDATE(Referencia, -12)))
+			    )
+			```
 		formatString: \R$ #,##0.00
 		displayFolder: Comparativos
 
@@ -36,8 +69,8 @@ table DRE
 		formatString: \R$ #,##0.00
 		displayFolder: Comparativos
 
-	/// Variação percentual da receita bruta contra o mesmo período do ano anterior.
-	measure 'Receita vs AA %' = DIVIDE([Receita Bruta] - [Receita Bruta AA], [Receita Bruta AA])
+	/// Variação da receita bruta acumulada no ano contra o mesmo acumulado do ano anterior.
+	measure 'Receita vs AA %' = DIVIDE([Receita Bruta YTD] - [Receita Bruta YTD AA], [Receita Bruta YTD AA])
 		formatString: 0.0%
 		displayFolder: Comparativos
 
