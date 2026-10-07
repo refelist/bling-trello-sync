@@ -4,21 +4,18 @@ table Empresa
 	column Empresa
 		dataType: string
 		summarizeBy: none
-		sourceColumn: [Empresa]
+		sourceColumn: Empresa
 
-	partition Empresa = calculated
+	partition Empresa = m
 		mode: import
 		source = ```
-				SELECTCOLUMNS(
-				    DISTINCT(
-				        UNION(
-				            DISTINCT(Lançamentos[Empresa]),
-				            DISTINCT(DRE[Empresa]),
-				            DISTINCT('Fluxo de Caixa'[Empresa]),
-				            DISTINCT('Contas em Aberto'[Empresa]),
-				            DISTINCT(Faturamento[Empresa])
-				        )
-				    ),
-				    "Empresa", [Empresa]
-				)
+				let
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    Lancamentos = Table.SelectColumns(Fonte{[Schema="public", Item="vw_lancamento"]}[Data], {"empresa"}),
+				    Faturamento = Table.SelectColumns(Fonte{[Schema="public", Item="vw_faturamento"]}[Data], {"empresa"}),
+				    Empresas = Table.Distinct(Table.Combine({Lancamentos, Faturamento})),
+				    SemVazias = Table.SelectRows(Empresas, each [empresa] <> null),
+				    Renomeada = Table.RenameColumns(SemVazias, {{"empresa", "Empresa"}})
+				in
+				    Renomeada
 				```
