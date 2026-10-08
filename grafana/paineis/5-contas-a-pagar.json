@@ -294,7 +294,7 @@
     {
       "type": "barchart",
       "title": "Em aberto por mês de vencimento",
-      "description": "",
+      "description": "Meses já passados aparecem juntos em Atrasadas; depois de 12 meses, em Depois.",
       "targets": [
         {
           "refId": "A",
@@ -305,7 +305,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT to_char(date_trunc('month', vencimento), 'MM/YY') AS \"Mês\", SUM(valor_em_aberto) AS \"Em aberto\" FROM vw_contas_em_aberto WHERE natureza = 'despesa' AND empresa IN ($empresa) AND vencimento IS NOT NULL GROUP BY date_trunc('month', vencimento) ORDER BY date_trunc('month', vencimento)"
+          "rawSql": "SELECT CASE WHEN mes < date_trunc('month', current_date) THEN 'Atrasadas' WHEN mes > date_trunc('month', current_date) + interval '11 months' THEN 'Depois' ELSE to_char(mes, 'MM/YY') END AS \"Mês\", SUM(valor_em_aberto) AS \"Em aberto\" FROM (SELECT date_trunc('month', vencimento) AS mes, valor_em_aberto FROM vw_contas_em_aberto WHERE natureza = 'despesa' AND empresa IN ($empresa) AND vencimento IS NOT NULL) v GROUP BY 1 ORDER BY MIN(mes)"
         }
       ],
       "fieldConfig": {

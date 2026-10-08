@@ -233,3 +233,22 @@ def test_data_zerada_do_bling_vira_vazia():
     linha = linha_conta_pagar(conta, "Empresa 1", "2026-01-01T00:00:00")
     assert linha["vencimento"] is None
     assert linha["data_emissao"] is None
+
+
+def test_nome_do_contato_que_veio_so_com_codigo_e_buscado_no_cadastro(settings, armazem):
+    coletor, bling = _coletor(settings, armazem)
+    original = bling.obter_conta_pagar
+    bling.obter_conta_pagar = lambda conta_id: {**original(conta_id), "contato": {"id": 8}}
+    buscados: list[int] = []
+
+    def obter_contato(contato_id):
+        buscados.append(contato_id)
+        return {"id": contato_id, "nome": "Fornecedor do cadastro", "numeroDocumento": "2"}
+
+    bling.obter_contato = obter_contato
+    coletor.coletar(dias=30)
+    coletor.coletar(dias=30)
+
+    assert buscados == [8]
+    aberto = armazem.ler("SELECT contato_nome FROM vw_contas_em_aberto WHERE natureza = 'despesa'")
+    assert aberto == [("Fornecedor do cadastro",)]

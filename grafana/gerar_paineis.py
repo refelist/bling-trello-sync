@@ -400,10 +400,15 @@ def contas(uid: str, titulo: str, natureza: str, contato: str, contatos: str, co
     quantidade = f"SELECT COUNT(*) FROM vw_contas_em_aberto WHERE natureza = '{natureza}' AND {EMPRESA}"
     p.add(18, 0, 6, 4, numero("Contas em aberto", quantidade, cor, "none"))
     p.add(0, 4, 12, 10, barras("Em aberto por mês de vencimento", f"""
-        SELECT to_char(date_trunc('month', vencimento), 'MM/YY') AS "Mês", SUM(valor_em_aberto) AS "Em aberto"
-          FROM vw_contas_em_aberto WHERE natureza = '{natureza}' AND {EMPRESA} AND vencimento IS NOT NULL
-         GROUP BY date_trunc('month', vencimento) ORDER BY date_trunc('month', vencimento)""",
-        "Mês", cor, horizontal=False))
+        SELECT CASE WHEN mes < date_trunc('month', current_date) THEN 'Atrasadas'
+                    WHEN mes > date_trunc('month', current_date) + interval '11 months' THEN 'Depois'
+                    ELSE to_char(mes, 'MM/YY') END AS "Mês",
+               SUM(valor_em_aberto) AS "Em aberto"
+          FROM (SELECT date_trunc('month', vencimento) AS mes, valor_em_aberto FROM vw_contas_em_aberto
+                 WHERE natureza = '{natureza}' AND {EMPRESA} AND vencimento IS NOT NULL) v
+         GROUP BY 1 ORDER BY MIN(mes)""",
+        "Mês", cor, horizontal=False,
+        descricao="Meses já passados aparecem juntos em Atrasadas; depois de 12 meses, em Depois."))
     p.add(12, 4, 12, 10, barras(f"Maiores {contatos}", f"""
         SELECT COALESCE(contato_nome, 'Sem nome') AS "{contato}", SUM(valor_em_aberto) AS "Em aberto"
           FROM vw_contas_em_aberto WHERE natureza = '{natureza}' AND {EMPRESA}
