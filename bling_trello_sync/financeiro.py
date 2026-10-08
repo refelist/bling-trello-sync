@@ -328,7 +328,7 @@ class ColetorFinanceiro:
             detalhe = {**resumida, **detalhe, "id": conta_id}
             linhas.append(montar_linha(detalhe, self.empresa, agora))
             contato = linha_contato(detalhe.get("contato") or {}, self.empresa)
-            if contato is not None:
+            if contato is not None and contato["nome"] is not None:
                 contatos.append(contato)
             for bordero_id in detalhe.get("borderos") or []:
                 identificador = _int(bordero_id)
@@ -353,6 +353,21 @@ class ColetorFinanceiro:
                 "movimento_caixa", _sem_repetir(movimentos, ("bordero_id", "conta_id"))
             ),
         )
+
+    def completar_contatos(self, resumo: ResumoFinanceiro) -> None:
+        """Busca no cadastro do Bling o nome dos contatos que vieram só com o código."""
+        contatos: list[dict[str, Any]] = []
+        for contato_id in self.armazem.contatos_sem_nome(self.empresa):
+            try:
+                detalhe = self.bling.obter_contato(contato_id)
+            except Exception as erro:  # noqa: BLE001 - o nome do contato é complementar
+                logger.warning("Falha ao ler o contato %s: %s", contato_id, erro)
+                resumo.erros.append((f"contato:{contato_id}", str(erro)))
+                continue
+            contato = linha_contato({**detalhe, "id": contato_id}, self.empresa)
+            if contato is not None:
+                contatos.append(contato)
+        resumo.somar("contato", self.armazem.gravar("contato", contatos))
 
     def coletar_pedidos_venda(self, inicio: str, fim: str, resumo: ResumoFinanceiro) -> None:
         agora = datetime.now().isoformat(timespec="seconds")
@@ -404,6 +419,7 @@ class ColetorFinanceiro:
             resumo,
             recarregar_tudo,
         )
+        self.completar_contatos(resumo)
         self.coletar_pedidos_venda(data_inicial, data_final, resumo)
         logger.info("Coleta financeira de %s a %s: %s", data_inicial, data_final, resumo)
         return resumo

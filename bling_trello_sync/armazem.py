@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS pedido_venda (
 
 VISOES = """
 CREATE VIEW vw_lancamento AS
-SELECT empresa, 'receita' AS natureza, id, situacao,
+SELECT r.empresa, 'receita' AS natureza, r.id, situacao,
        CASE situacao WHEN 1 THEN 'Em aberto' WHEN 2 THEN 'Liquidado' WHEN 3 THEN 'Parcial'
                      WHEN 4 THEN 'Devolvido' WHEN 5 THEN 'Cancelado'
                      WHEN 6 THEN 'Devolvido parcial' WHEN 7 THEN 'Confirmado'
@@ -139,10 +139,11 @@ SELECT empresa, 'receita' AS natureza, id, situacao,
        data_emissao,
        COALESCE(competencia, data_emissao) AS competencia, vencimento,
        valor, saldo, valor_recebido AS valor_liquidado, categoria_id, portador_id,
-       contato_id, contato_nome, historico
-  FROM conta_receber
+       r.contato_id, COALESCE(r.contato_nome, ct.nome) AS contato_nome, historico
+  FROM conta_receber r
+  LEFT JOIN contato ct ON ct.empresa = r.empresa AND ct.id = r.contato_id
 UNION ALL
-SELECT empresa, 'despesa' AS natureza, id, situacao,
+SELECT p.empresa, 'despesa' AS natureza, p.id, situacao,
        CASE situacao WHEN 1 THEN 'Em aberto' WHEN 2 THEN 'Liquidado' WHEN 3 THEN 'Parcial'
                      WHEN 4 THEN 'Devolvido' WHEN 5 THEN 'Cancelado'
                      WHEN 6 THEN 'Devolvido parcial' WHEN 7 THEN 'Confirmado'
@@ -150,8 +151,9 @@ SELECT empresa, 'despesa' AS natureza, id, situacao,
        data_emissao,
        COALESCE(competencia, data_emissao) AS competencia, vencimento,
        valor, saldo, valor_pago AS valor_liquidado, categoria_id, portador_id,
-       contato_id, contato_nome, historico
-  FROM conta_pagar;
+       p.contato_id, COALESCE(p.contato_nome, ct.nome) AS contato_nome, historico
+  FROM conta_pagar p
+  LEFT JOIN contato ct ON ct.empresa = p.empresa AND ct.id = p.contato_id;
 
 CREATE VIEW vw_dre AS
 SELECT l.empresa,
@@ -294,3 +296,13 @@ class Armazem:
             (empresa,),
         )
         return {int(linha[0]) for linha in linhas}
+
+    def contatos_sem_nome(self, empresa: str) -> list[int]:
+        """Contatos das contas cujo nome o Bling não mandou e que ainda não estão no cadastro."""
+        linhas = self.ler(
+            "SELECT DISTINCT l.contato_id FROM vw_lancamento l "
+            f"WHERE l.empresa = {self.placeholder} AND l.contato_id IS NOT NULL "
+            "AND l.contato_nome IS NULL ORDER BY 1",
+            (empresa,),
+        )
+        return [int(linha[0]) for linha in linhas]
