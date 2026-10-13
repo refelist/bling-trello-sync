@@ -21,8 +21,12 @@ O vínculo `pedido → card` fica em um banco SQLite local, então um pedido nun
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env    # preencha as credenciais
+cp .env.example .env    # conta 1 (JH Shopping) — preencha os <segredos>
+# Segunda conta Bling (outra empresa no mesmo Postgres):
+# cp .env.example.segunda-empresa /caminho/da-copia-2/.env
 ```
+
+Há dois exemplos versionados: `.env.example` (**JH Shopping LTDA**, host `refelist-bling`) e `.env.example.segunda-empresa` (**JHS Shopping LTDA**, host `refelist-bling2`). As duas compartilham o mesmo Postgres e mudam Client Id Bling, mapas de situação/lojas e `FINANCEIRO_EMPRESA`.
 
 ## Configuração
 
