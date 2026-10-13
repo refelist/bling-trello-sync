@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     financeiro_dias: int = 365
     financeiro_dias_futuros: int = 365
     financeiro_intervalo_minutos: int = 60
+    # Eixos secundários (vencimento/pagamento) só nos últimos N dias; emissão cobre o período todo.
+    # Com --recarregar-tudo (ou FINANCEIRO_FILTROS_COMPLETOS=true) usa todos os eixos no período inteiro.
+    financeiro_filtros_secundarios_dias: int = 45
+    financeiro_filtros_completos: bool = False
 
     lojas_ignoradas: Annotated[list[str], NoDecode] = Field(default_factory=list)
     lojas_permitidas: Annotated[list[str], NoDecode] = Field(default_factory=list)

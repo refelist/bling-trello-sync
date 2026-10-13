@@ -58,3 +58,51 @@ groups:
         labels:
           severity: warning
           equipe: financeiro
+
+      - uid: fin-bling-429
+        title: Muitos HTTP 429 na coleta financeira
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: financeiro
+            model:
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: >
+                SELECT COALESCE(SUM(bling_429), 0) AS "429"
+                  FROM vw_coleta_meta
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [10]
+                  operator:
+                    type: and
+                  type: query
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 0m
+        annotations:
+          summary: A última coleta financeira acumulou mais de 10 respostas HTTP 429 do Bling.
+          description: >
+            Reduza o período, use filtros secundários curtos ou aumente o intervalo entre coletas.
+        labels:
+          severity: warning
+          equipe: financeiro

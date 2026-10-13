@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS coleta_meta (
     coletado_em TEXT NOT NULL,
     ok INTEGER NOT NULL DEFAULT 1,
     erros INTEGER NOT NULL DEFAULT 0,
+    bling_429 INTEGER NOT NULL DEFAULT 0,
     resumo TEXT
 );
 """
@@ -221,7 +222,7 @@ SELECT empresa, data, numero, contato_nome, loja_id, situacao_id, total
  WHERE situacao_id IS NULL OR situacao_id <> {cancelado};
 
 CREATE VIEW vw_coleta_meta AS
-SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta;
+SELECT empresa, coletado_em, ok, erros, bling_429, resumo FROM coleta_meta;
 """
 
 VISOES = _VISOES_TEMPLATE.format(cancelado=SITUACAO_PEDIDO_CANCELADO)
@@ -254,7 +255,7 @@ CHAVES = {
 }
 
 # Suba este número quando mudar tabelas/visões para forçar migração única (sem DROP a cada boot).
-ESQUEMA_VERSAO = 4
+ESQUEMA_VERSAO = 5
 
 def versao_da_conta(situacao: Any, valor: Any, vencimento: Any) -> tuple[Any, ...]:
     """Identidade usada para saber se a conta mudou desde a última coleta."""
@@ -304,6 +305,7 @@ class Armazem:
                 if comando.strip():
                     cursor.execute(comando)
             self._migrar_movimento_caixa(cursor)
+            self._migrar_coleta_meta(cursor)
             for comando in INDICES.split(";"):
                 if comando.strip():
                     cursor.execute(comando)
@@ -464,8 +466,24 @@ class Armazem:
         )
         return [int(linha[0]) for linha in linhas]
 
+    def _migrar_coleta_meta(self, cursor: Any) -> None:
+        colunas = self._colunas_da_tabela(cursor, "coleta_meta")
+        if not colunas:
+            return
+        if "bling_429" not in colunas:
+            cursor.execute(
+                "ALTER TABLE coleta_meta ADD COLUMN bling_429 INTEGER NOT NULL DEFAULT 0"
+            )
+
     def registrar_coleta(
-        self, empresa: str, *, ok: bool, erros: int, resumo: str, coletado_em: str
+        self,
+        empresa: str,
+        *,
+        ok: bool,
+        erros: int,
+        resumo: str,
+        coletado_em: str,
+        bling_429: int = 0,
     ) -> None:
         """Grava o resultado da última coleta financeira da empresa (lido pelos painéis)."""
         self.gravar(
@@ -476,6 +494,7 @@ class Armazem:
                     "coletado_em": coletado_em,
                     "ok": 1 if ok else 0,
                     "erros": erros,
+                    "bling_429": max(0, int(bling_429)),
                     "resumo": resumo[:2000] if resumo else None,
                 }
             ],
@@ -484,10 +503,11 @@ class Armazem:
     def ultima_coleta(self, empresa: str | None = None) -> list[tuple[Any, ...]]:
         if empresa is None:
             return self.ler(
-                "SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta ORDER BY empresa"
+                "SELECT empresa, coletado_em, ok, erros, bling_429, resumo "
+                "FROM coleta_meta ORDER BY empresa"
             )
         return self.ler(
-            "SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta "
+            "SELECT empresa, coletado_em, ok, erros, bling_429, resumo FROM coleta_meta "
             f"WHERE empresa = {self.placeholder}",
             (empresa,),
         )

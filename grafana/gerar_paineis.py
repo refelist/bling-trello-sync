@@ -438,14 +438,26 @@ def visao_geral() -> Painel:
             {"color": VERMELHO, "value": 6},
         ],
     ))
-    p.add(8, 4, 16, 3, tabela(
+    p.add(8, 4, 10, 3, tabela(
         "Última coleta financeira",
         f"""SELECT empresa AS "Empresa", coletado_em AS "Coletado em",
                    CASE WHEN ok = 1 THEN 'ok' ELSE 'com erros' END AS "Status",
-                   erros AS "Erros", resumo AS "Resumo"
+                   erros AS "Erros", bling_429 AS "HTTP 429", resumo AS "Resumo"
               FROM vw_coleta_meta WHERE {EMPRESA} ORDER BY 1""",
-        contagens=("Erros",),
-        descricao="Momento da última sincronização por empresa.",
+        contagens=("Erros", "HTTP 429"),
+        descricao="Momento da última sincronização por empresa (429 = limites de taxa nesta rodada).",
+    ))
+    p.add(18, 4, 6, 3, numero(
+        "HTTP 429 na última coleta",
+        f"SELECT COALESCE(SUM(bling_429), 0) FROM vw_coleta_meta WHERE {EMPRESA}",
+        LARANJA,
+        "none",
+        "Respostas 429 do Bling durante a última coleta (soma das empresas selecionadas).",
+        limiares=[
+            {"color": VERDE, "value": None},
+            {"color": LARANJA, "value": 1},
+            {"color": VERMELHO, "value": 10},
+        ],
     ))
 
     p.add(0, 7, 12, 9, colunas_mensais("Faturamento mensal por empresa", FAT_MENSAL, empilhar=True))

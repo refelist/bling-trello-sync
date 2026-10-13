@@ -1,0 +1,16 @@
+[Unit]
+Description=Coleta financeira Bling → Postgres (JHS) — oneshot sem Trello
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/bling-trello-sync-jhs
+EnvironmentFile=/opt/bling-trello-sync-jhs/.env
+ExecStart=/opt/bling-trello-sync-jhs/.venv/bin/python -m bling_trello_sync.cli sincronizar-financeiro
+Nice=10
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=multi-user.target

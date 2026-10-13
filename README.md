@@ -175,7 +175,14 @@ python -m bling_trello_sync.cli sincronizar-compra 12345678
 
 ## Financeiro (Power BI / Grafana)
 
-Independente do Trello. Com `FINANCEIRO_ATIVO=true` o serviço atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`:
+Independente do Trello. Com `FINANCEIRO_ATIVO=true` o serviço FastAPI atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`. Para só a frente financeira (sem webhook/Trello), use os units oneshot:
+
+```bash
+sudo cp deploy/bling-financeiro.service deploy/bling-financeiro.timer /etc/systemd/system/
+sudo cp deploy/bling-financeiro-jhs.service deploy/bling-financeiro-jhs.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bling-financeiro.timer bling-financeiro-jhs.timer
+```
 
 ```bash
 python -m bling_trello_sync.cli sincronizar-financeiro --dias 365
@@ -185,6 +192,8 @@ python -m bling_trello_sync.cli sincronizar-financeiro --data-inicial 2025-01-01
 `FINANCEIRO_DATABASE_URL` aceita Postgres (`postgresql://…`, recomendado) ou SQLite. Cada instância grava com `FINANCEIRO_EMPRESA`; as duas contas Bling podem apontar para o mesmo banco.
 
 Coletado: contas a receber/pagar, borderôs (com juros, desconto, acréscimo, tarifa e sequência de pagamento), pedidos de venda e dimensões (categoria, conta financeira, forma de pagamento, contato). Detalhe de conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` força).
+
+Para reduzir HTTP 429, a coleta incremental varre **emissão** no período inteiro e **vencimento/pagamento** só nos últimos `FINANCEIRO_FILTROS_SECUNDARIOS_DIAS` (padrão 45). `FINANCEIRO_FILTROS_COMPLETOS=true` ou `--recarregar-tudo` restaura os três eixos no período todo. O contador de 429 da corrida fica em `coleta_meta.bling_429` (painel Operação + alerta Grafana).
 
 Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`, `coleta_meta`. Visões: `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`, `vw_coleta_meta`.
 
@@ -216,12 +225,12 @@ DRE usa competência; fluxo de caixa usa a data do pagamento/recebimento efetivo
 Alternativa no navegador, no próprio servidor, com as mesmas visões:
 
 1. Subdomínio DuckDNS (ex.: `refelist-bi`) apontando para o servidor.
-2. `bash grafana/instalar.sh refelist-bi.duckdns.org` — instala Grafana, conecta com `powerbi`, carrega painéis, HTTPS via Caddy; senha admin em `/root/senha-grafana.txt`.
+2. `bash grafana/instalar.sh refelist-bi.duckdns.org` — instala Grafana, conecta com `powerbi`, carrega painéis, HTTPS via Caddy; senha admin em `/root/senha-grafana.txt`. Senha do Postgres fica em `/etc/grafana/financeiro.env` (`EnvironmentFile`); `sslmode` padrão `prefer` (override `GRAFANA_PG_SSLMODE`).
 3. Cadastre usuários **Viewer** em *Administração > Usuários*.
 
 Painéis gerados por `grafana/gerar_paineis.py`; após alterar o script, rode-o, faça commit dos JSON em `grafana/paineis/` e rode `instalar.sh` de novo.
 
-A Visão Geral usa timezone `America/Sao_Paulo`, refresh a cada 15 min, 6 cartões hero com Δ vs período anterior, indicador de horas desde a última coleta (amarelo ≥3h / vermelho ≥6h) e alerta provisionado em `grafana/alertas/financeiro.yaml` (coleta > 6h).
+A Visão Geral usa timezone `America/Sao_Paulo`, refresh a cada 15 min, 6 cartões hero com Δ vs período anterior, indicador de horas desde a última coleta (amarelo ≥3h / vermelho ≥6h) e alertas em `grafana/alertas/financeiro.yaml` (coleta > 6h; HTTP 429 na última corrida).
 
 ## Backup
 

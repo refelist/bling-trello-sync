@@ -367,18 +367,83 @@ def test_periodo_longo_e_dividido_em_janelas_de_ate_366_dias():
 
 def test_coleta_consulta_o_bling_em_janelas_de_ate_366_dias(settings, armazem):
     coletor, bling = _coletor(settings, armazem)
-    periodos: list[tuple[str, str]] = []
+    periodos_emissao: list[tuple[str, str]] = []
     original = bling.listar_contas_receber
 
     def listar(pagina=1, limite=100, tipo_filtro_data="E", data_inicial=None, data_final=None):
-        periodos.append((data_inicial, data_final))
+        if tipo_filtro_data == "E":
+            periodos_emissao.append((data_inicial, data_final))
         return original(pagina=pagina, limite=limite, tipo_filtro_data=tipo_filtro_data)
 
     bling.listar_contas_receber = listar
     coletor.coletar(data_inicial="2025-10-05", data_final="2027-10-05")
 
-    assert set(periodos) == {("2025-10-05", "2026-10-05"), ("2026-10-06", "2027-10-05")}
+    assert set(periodos_emissao) == {("2025-10-05", "2026-10-05"), ("2026-10-06", "2027-10-05")}
     assert armazem.ler("SELECT COUNT(*) FROM conta_receber")[0][0] == 1
+
+
+def test_coleta_incremental_emite_no_periodo_todo_e_restringe_secundarios(settings, armazem, monkeypatch):
+    """Com filtros secundários curtos, V/R não varrem o histórico longo (menos 429)."""
+    from datetime import date as date_cls
+
+    class _Date(date_cls):
+        @classmethod
+        def today(cls):
+            return date_cls(2027, 10, 5)
+
+    monkeypatch.setattr("bling_trello_sync.financeiro.date", _Date)
+    configurado = settings.model_copy(
+        update={
+            "financeiro_empresa": "Empresa 1",
+            "financeiro_filtros_secundarios_dias": 30,
+            "financeiro_filtros_completos": False,
+        }
+    )
+    bling = BlingFake()
+    coletor = ColetorFinanceiro(configurado, bling, armazem)
+    tipos: list[str] = []
+    periodos_v: list[tuple[str, str]] = []
+    original = bling.listar_contas_receber
+
+    def listar(pagina=1, limite=100, tipo_filtro_data="E", data_inicial=None, data_final=None):
+        tipos.append(tipo_filtro_data)
+        if tipo_filtro_data in {"V", "R"}:
+            periodos_v.append((data_inicial, data_final))
+        return original(
+            pagina=pagina,
+            limite=limite,
+            tipo_filtro_data=tipo_filtro_data,
+            data_inicial=data_inicial,
+            data_final=data_final,
+        )
+
+    bling.listar_contas_receber = listar  # type: ignore[method-assign]
+    coletor.coletar(data_inicial="2025-10-05", data_final="2027-10-05")
+
+    assert "E" in tipos and "V" in tipos and "R" in tipos
+    # Secundários só a partir de ~2027-09-05 (30 dias antes de 2027-10-05)
+    assert periodos_v
+    assert all(ini >= "2027-09-05" for ini, _ in periodos_v)
+
+
+def test_coleta_completa_varre_secundarios_no_periodo_inteiro(settings, armazem):
+    configurado = settings.model_copy(
+        update={"financeiro_empresa": "Empresa 1", "financeiro_filtros_completos": True}
+    )
+    coletor = ColetorFinanceiro(configurado, BlingFake(), armazem)
+    tipos: list[str] = []
+    bling = coletor.bling
+    original = bling.listar_contas_receber
+
+    def listar(pagina=1, limite=100, tipo_filtro_data="E", data_inicial=None, data_final=None):
+        tipos.append(tipo_filtro_data)
+        return original(pagina=pagina, limite=limite, tipo_filtro_data=tipo_filtro_data)
+
+    bling.listar_contas_receber = listar  # type: ignore[method-assign]
+    coletor.coletar(data_inicial="2026-01-01", data_final="2026-01-31", recarregar_tudo=True)
+    assert tipos.count("E") >= 1
+    assert tipos.count("V") >= 1
+    assert tipos.count("R") >= 1
 
 
 def test_data_zerada_do_bling_vira_vazia():

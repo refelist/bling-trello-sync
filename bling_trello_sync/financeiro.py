@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from itertools import product
 from typing import Any
 
 from .armazem import Armazem, versao_da_conta
@@ -269,10 +268,31 @@ class ColetorFinanceiro:
             ),
         )
 
-    def _contas_receber_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
-        """Contas a receber emitidas, vencidas ou recebidas no período, sem repetir."""
+    def _inicio_filtros_secundarios(self, inicio: str, *, completo: bool) -> str:
+        """Início da varredura de vencimento/pagamento (emissão sempre cobre o período inteiro)."""
+        if completo or self.settings.financeiro_filtros_completos:
+            return inicio
+        dias = max(0, self.settings.financeiro_filtros_secundarios_dias)
+        recente = (date.today() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        return max(inicio, recente)
+
+    def _contas_receber_do_periodo(
+        self, inicio: str, fim: str, *, completo: bool = False
+    ) -> dict[int, dict[str, Any]]:
+        """Contas a receber do período, sem repetir.
+
+        Incremental: emissão no período todo; vencimento/recebimento só na janela recente
+        (ou no período todo se `completo` / FINANCEIRO_FILTROS_COMPLETOS).
+        """
         encontradas: dict[int, dict[str, Any]] = {}
-        for (ini, fin), tipo_filtro in product(janelas_do_periodo(inicio, fim), ("E", "V", "R")):
+        consultas: list[tuple[str, str, str]] = [
+            (ini, fin, "E") for ini, fin in janelas_do_periodo(inicio, fim)
+        ]
+        sec_inicio = self._inicio_filtros_secundarios(inicio, completo=completo)
+        if sec_inicio <= fim:
+            for ini, fin in janelas_do_periodo(sec_inicio, fim):
+                consultas.extend((ini, fin, tipo) for tipo in ("V", "R"))
+        for ini, fin, tipo_filtro in consultas:
             registros = self._paginar(
                 lambda p, t=tipo_filtro, i=ini, f=fin: self.bling.listar_contas_receber(
                     pagina=p, tipo_filtro_data=t, data_inicial=i, data_final=f
@@ -284,13 +304,20 @@ class ColetorFinanceiro:
                     encontradas[conta_id] = registro
         return encontradas
 
-    def _contas_pagar_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
+    def _contas_pagar_do_periodo(
+        self, inicio: str, fim: str, *, completo: bool = False
+    ) -> dict[int, dict[str, Any]]:
+        """Contas a pagar: emissão no período todo; vencimento/pagamento na janela recente."""
         encontradas: dict[int, dict[str, Any]] = {}
-        filtros = [
-            {f"data_{campo}_inicial": ini, f"data_{campo}_final": fin}
+        filtros: list[dict[str, str]] = [
+            {"data_emissao_inicial": ini, "data_emissao_final": fin}
             for ini, fin in janelas_do_periodo(inicio, fim)
-            for campo in ("emissao", "vencimento", "pagamento")
         ]
+        sec_inicio = self._inicio_filtros_secundarios(inicio, completo=completo)
+        if sec_inicio <= fim:
+            for ini, fin in janelas_do_periodo(sec_inicio, fim):
+                filtros.append({"data_vencimento_inicial": ini, "data_vencimento_final": fin})
+                filtros.append({"data_pagamento_inicial": ini, "data_pagamento_final": fin})
         for filtro in filtros:
             registros = self._paginar(
                 lambda p, f=filtro: self.bling.listar_contas_pagar(pagina=p, **f)
@@ -407,11 +434,13 @@ class ColetorFinanceiro:
 
         resumo = ResumoFinanceiro()
         agora = datetime.now().isoformat(timespec="seconds")
+        completo = recarregar_tudo or self.settings.financeiro_filtros_completos
+        _429_antes = int(metricas.instantaneo()["bling_429"])
         try:
             self.coletar_dimensoes(resumo)
             self._coletar_contas(
                 "conta_receber",
-                self._contas_receber_do_periodo(data_inicial, data_final),
+                self._contas_receber_do_periodo(data_inicial, data_final, completo=completo),
                 self.bling.obter_conta_receber,
                 linha_conta_receber,
                 "receber",
@@ -420,7 +449,7 @@ class ColetorFinanceiro:
             )
             self._coletar_contas(
                 "conta_pagar",
-                self._contas_pagar_do_periodo(data_inicial, data_final),
+                self._contas_pagar_do_periodo(data_inicial, data_final, completo=completo),
                 self.bling.obter_conta_pagar,
                 linha_conta_pagar,
                 "pagar",
@@ -430,6 +459,7 @@ class ColetorFinanceiro:
             self.completar_contatos(resumo)
             self.coletar_pedidos_venda(data_inicial, data_final, resumo)
         except Exception:
+            bling_429 = int(metricas.instantaneo()["bling_429"]) - _429_antes
             metricas.registrar_coleta_financeira(
                 empresa=self.empresa, ok=False, erros=len(resumo.erros) + 1
             )
@@ -439,19 +469,29 @@ class ColetorFinanceiro:
                 erros=len(resumo.erros) + 1,
                 resumo=str(resumo),
                 coletado_em=agora,
+                bling_429=bling_429,
             )
             raise
+        bling_429 = int(metricas.instantaneo()["bling_429"]) - _429_antes
         self.armazem.registrar_coleta(
             self.empresa,
             ok=not resumo.erros,
             erros=len(resumo.erros),
             resumo=str(resumo),
             coletado_em=agora,
+            bling_429=bling_429,
         )
         metricas.registrar_coleta_financeira(
             empresa=self.empresa, ok=not resumo.erros, erros=len(resumo.erros)
         )
-        logger.info("Coleta financeira de %s a %s: %s", data_inicial, data_final, resumo)
+        logger.info(
+            "Coleta financeira de %s a %s (completo=%s): %s | 429 nesta rodada=%s",
+            data_inicial,
+            data_final,
+            completo,
+            resumo,
+            bling_429,
+        )
         return resumo
 
 

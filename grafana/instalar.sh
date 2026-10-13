@@ -7,9 +7,10 @@ DOMINIO="${1:?Informe o domínio, por exemplo: bash grafana/instalar.sh refelist
 PASTA_REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SENHA_BANCO_ARQ=/root/senha-powerbi.txt
 SENHA_GRAFANA_ARQ=/root/senha-grafana.txt
+ENV_FINANCEIRO=/etc/grafana/financeiro.env
 PAINEIS=/var/lib/grafana/dashboards/financeiro
-
-[ -f "$SENHA_BANCO_ARQ" ] || { echo "Não achei $SENHA_BANCO_ARQ (senha do usuário powerbi)"; exit 1; }
+# prefer = tenta TLS e cai para plain em localhost; override com GRAFANA_PG_SSLMODE=require|disable
+SSLMODE="${GRAFANA_PG_SSLMODE:-prefer}"
 
 if ! dpkg -s grafana >/dev/null 2>&1; then
     echo ">> Instalando o Grafana"
@@ -22,15 +23,44 @@ if ! dpkg -s grafana >/dev/null 2>&1; then
     apt-get install -y -q grafana >/dev/null
 fi
 
+echo ">> Segredos em EnvironmentFile (não embute senha no YAML versionado)"
+install -d -o root -g grafana -m 750 /etc/grafana
+if [ ! -f "$ENV_FINANCEIRO" ]; then
+    if [ -f "$SENHA_BANCO_ARQ" ]; then
+        SENHA_BANCO="$(head -n 1 "$SENHA_BANCO_ARQ" | tr -d '\r\n')"
+    else
+        echo "Crie $ENV_FINANCEIRO com GF_FINANCEIRO_PG_PASSWORD=... ou $SENHA_BANCO_ARQ"
+        exit 1
+    fi
+    umask 027
+    cat > "$ENV_FINANCEIRO" <<ENV
+# Gerado por grafana/instalar.sh — chmod 640, grupo grafana
+GF_FINANCEIRO_PG_PASSWORD=$SENHA_BANCO
+GRAFANA_PG_SSLMODE=$SSLMODE
+ENV
+    chown root:grafana "$ENV_FINANCEIRO"
+    chmod 640 "$ENV_FINANCEIRO"
+    echo "   criado $ENV_FINANCEIRO a partir de $SENHA_BANCO_ARQ"
+else
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FINANCEIRO"
+    set +a
+    SSLMODE="${GRAFANA_PG_SSLMODE:-$SSLMODE}"
+    [ -n "${GF_FINANCEIRO_PG_PASSWORD:-}" ] || {
+        echo "$ENV_FINANCEIRO sem GF_FINANCEIRO_PG_PASSWORD"
+        exit 1
+    }
+fi
+
 echo ">> Configurando a conexão com o banco e os painéis"
-SENHA_BANCO="$(head -n 1 "$SENHA_BANCO_ARQ" | tr -d '\r\n')"
-ASPA="'"
-SENHA_YAML="${SENHA_BANCO//$ASPA/$ASPA$ASPA}"
 install -d -o root -g grafana -m 750 \
     /etc/grafana/provisioning/datasources \
     /etc/grafana/provisioning/dashboards \
     /etc/grafana/provisioning/alerting
 install -m 640 -o root -g grafana /dev/null /etc/grafana/provisioning/datasources/financeiro.yaml
+# Senha via expansão de env do processo grafana-server (EnvironmentFile).
 cat > /etc/grafana/provisioning/datasources/financeiro.yaml <<YAML
 apiVersion: 1
 datasources:
@@ -43,11 +73,11 @@ datasources:
     editable: false
     jsonData:
       database: financeiro
-      sslmode: disable
+      sslmode: $SSLMODE
       postgresVersion: 1400
       maxOpenConns: 5
     secureJsonData:
-      password: '$SENHA_YAML'
+      password: \$GF_FINANCEIRO_PG_PASSWORD
 YAML
 cat > /etc/grafana/provisioning/dashboards/financeiro.yaml <<YAML
 apiVersion: 1
@@ -74,6 +104,7 @@ fi
 mkdir -p /etc/systemd/system/grafana-server.service.d
 cat > /etc/systemd/system/grafana-server.service.d/financeiro.conf <<CONF
 [Service]
+EnvironmentFile=-$ENV_FINANCEIRO
 Environment=GF_SERVER_HTTP_ADDR=127.0.0.1
 Environment=GF_SERVER_DOMAIN=$DOMINIO
 Environment=GF_SERVER_ROOT_URL=https://$DOMINIO/

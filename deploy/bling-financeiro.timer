@@ -1,0 +1,12 @@
+[Unit]
+Description=Agenda da coleta financeira Bling → Postgres (JH)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+Unit=bling-financeiro.service
+
+[Install]
+WantedBy=timers.target
