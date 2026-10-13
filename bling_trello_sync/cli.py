@@ -22,16 +22,34 @@ FORMATO_ALTERACAO = "%Y-%m-%d %H:%M:%S"
 FORMATO_DATA = "%Y-%m-%d"
 
 
-def _construir() -> tuple[Sincronizador, BlingClient, TrelloClient, Storage]:
+def _construir_bling() -> tuple[BlingClient, Storage]:
     settings = get_settings()
     storage = Storage(settings.database_path)
-    bling = BlingClient(settings, storage)
-    trello = TrelloClient(settings.trello_api_key, settings.trello_token)
+    return BlingClient(settings, storage), storage
+
+
+def _construir_trello() -> TrelloClient:
+    settings = get_settings()
+    try:
+        settings.exigir_trello()
+    except ValueError as erro:
+        raise SystemExit(str(erro)) from erro
+    return TrelloClient(settings.trello_api_key, settings.trello_token)
+
+
+def _construir_sincronizador() -> tuple[Sincronizador, BlingClient, TrelloClient, Storage]:
+    settings = get_settings()
+    bling, storage = _construir_bling()
+    trello = _construir_trello()
     return Sincronizador(settings, storage, bling, trello), bling, trello, storage
 
 
 def _construir_compras(bling: BlingClient, trello: TrelloClient, storage: Storage) -> SincronizadorCompras:
     settings = get_settings()
+    try:
+        settings.exigir_trello()
+    except ValueError as erro:
+        raise SystemExit(str(erro)) from erro
     if not settings.trello_board_id_compras:
         raise SystemExit("Configure TRELLO_BOARD_ID_COMPRAS no .env para sincronizar as compras.")
     return SincronizadorCompras(settings, storage, bling, trello)
@@ -264,13 +282,50 @@ def _comando_situacoes_pedidos(args: argparse.Namespace, bling: BlingClient) -> 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _construir_parser().parse_args(argv)
-    sincronizador, bling, trello, storage = _construir()
     settings = get_settings()
+    # Comandos só Bling/financeiro não exigem Trello (implantação financeira isolada).
+    so_bling = {
+        "autorizar",
+        "sincronizar-financeiro",
+        "lojas-bling",
+        "modulos-bling",
+        "pedido-json",
+        "situacoes-pedidos",
+        "situacoes-bling",
+    }
 
-    if args.comando == "autorizar":
-        autorizar(bling)
-        print("Tokens do Bling armazenados com sucesso.")
-    elif args.comando == "sincronizar":
+    if args.comando in so_bling:
+        bling, _ = _construir_bling()
+        if args.comando == "autorizar":
+            autorizar(bling)
+            print("Tokens do Bling armazenados com sucesso.")
+        elif args.comando == "sincronizar-financeiro":
+            resumo = _construir_financeiro(bling).coletar(
+                dias=args.dias,
+                data_inicial=args.data_inicial,
+                data_final=args.data_final,
+                recarregar_tudo=args.recarregar_tudo,
+            )
+            print(f"Linhas gravadas -> {resumo}")
+            for origem, erro in resumo.erros:
+                print(f"  erro em {origem}: {erro}")
+        elif args.comando == "lojas-bling":
+            _comando_lojas(args, bling)
+        elif args.comando == "modulos-bling":
+            for modulo in bling.listar_modulos_situacoes():
+                print(f"{modulo.get('id')}  {modulo.get('nome')}")
+        elif args.comando == "pedido-json":
+            _comando_pedido_json(args, bling)
+        elif args.comando == "situacoes-pedidos":
+            _comando_situacoes_pedidos(args, bling)
+        elif args.comando == "situacoes-bling":
+            for situacao in bling.listar_situacoes_do_modulo(args.id_modulo):
+                print(f"{situacao.get('id')}  {situacao.get('nome')}")
+        return 0
+
+    sincronizador, bling, trello, storage = _construir_sincronizador()
+
+    if args.comando == "sincronizar":
         _comando_sincronizar(args, sincronizador, storage)
     elif args.comando == "sincronizar-compras":
         compras = _construir_compras(bling, trello, storage)
@@ -287,16 +342,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         for pedido_id, erro in resumo.erros:
             print(f"  erro na compra {pedido_id}: {erro}")
-    elif args.comando == "sincronizar-financeiro":
-        resumo = _construir_financeiro(bling).coletar(
-            dias=args.dias,
-            data_inicial=args.data_inicial,
-            data_final=args.data_final,
-            recarregar_tudo=args.recarregar_tudo,
-        )
-        print(f"Linhas gravadas -> {resumo}")
-        for origem, erro in resumo.erros:
-            print(f"  erro em {origem}: {erro}")
     elif args.comando == "sincronizar-compra":
         resultado = _construir_compras(bling, trello, storage).sincronizar_pedido(args.pedido_id)
         print(f"{resultado.acao}: {resultado.card_url or '-'}")
@@ -312,18 +357,6 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "labels-trello":
         for label in trello.listar_labels(settings.trello_board_id):
             print(f"{label['id']}  {label.get('color')}  {label.get('name')}")
-    elif args.comando == "lojas-bling":
-        _comando_lojas(args, bling)
-    elif args.comando == "modulos-bling":
-        for modulo in bling.listar_modulos_situacoes():
-            print(f"{modulo.get('id')}  {modulo.get('nome')}")
-    elif args.comando == "pedido-json":
-        _comando_pedido_json(args, bling)
-    elif args.comando == "situacoes-pedidos":
-        _comando_situacoes_pedidos(args, bling)
-    elif args.comando == "situacoes-bling":
-        for situacao in bling.listar_situacoes_do_modulo(args.id_modulo):
-            print(f"{situacao.get('id')}  {situacao.get('nome')}")
 
     return 0
 

@@ -1,1 +1,17 @@
-__all__ = ["bling", "cli", "config", "oauth_local", "storage", "sync", "trello"]
+__all__ = [
+    "armazem",
+    "bling",
+    "checklist",
+    "cli",
+    "compras",
+    "config",
+    "financeiro",
+    "formatacao",
+    "main",
+    "metricas",
+    "oauth_local",
+    "storage",
+    "sync",
+    "tipos",
+    "trello",
+]

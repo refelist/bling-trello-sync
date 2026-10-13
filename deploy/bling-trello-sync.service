@@ -1,0 +1,20 @@
+[Unit]
+Description=Bling → Trello sync (FastAPI + webhooks + loops)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bling-trello-sync
+EnvironmentFile=/opt/bling-trello-sync/.env
+ExecStart=/opt/bling-trello-sync/.venv/bin/uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Segunda conta (JHS): copie este arquivo para bling-trello-sync-jhs.service,
+# aponte WorkingDirectory/EnvironmentFile/ExecStart para a outra pasta e outra porta.
+
+[Install]
+WantedBy=multi-user.target

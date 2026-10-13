@@ -1,0 +1,21 @@
+/// Empresas (contas do Bling) presentes nos dados. Usada no filtro de uma, outra ou ambas.
+table Empresa
+
+	column Empresa
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Empresa
+
+	partition Empresa = m
+		mode: import
+		source = ```
+				let
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    Lancamentos = Table.SelectColumns(Fonte{[Schema="public", Item="vw_lancamento"]}[Data], {"empresa"}),
+				    Faturamento = Table.SelectColumns(Fonte{[Schema="public", Item="vw_faturamento"]}[Data], {"empresa"}),
+				    Empresas = Table.Distinct(Table.Combine({Lancamentos, Faturamento})),
+				    SemVazias = Table.SelectRows(Empresas, each [empresa] <> null),
+				    Renomeada = Table.RenameColumns(SemVazias, {{"empresa", "Empresa"}})
+				in
+				    Renomeada
+				```

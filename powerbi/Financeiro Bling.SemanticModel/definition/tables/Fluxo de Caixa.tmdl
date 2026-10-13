@@ -1,0 +1,90 @@
+/// Pagamentos e recebimentos efetivamente baixados, por data de liquidação (visão vw_fluxo_caixa).
+table 'Fluxo de Caixa'
+
+	/// Dinheiro que entrou no caixa no período.
+	measure Entradas = CALCULATE(SUM('Fluxo de Caixa'[Valor com Sinal]), 'Fluxo de Caixa'[Tipo] = "receber")
+		formatString: \R$ #,##0.00
+		displayFolder: Caixa
+
+	/// Dinheiro que saiu do caixa no período, em valor positivo.
+	measure Saídas = -CALCULATE(SUM('Fluxo de Caixa'[Valor com Sinal]), 'Fluxo de Caixa'[Tipo] = "pagar")
+		formatString: \R$ #,##0.00
+		displayFolder: Caixa
+
+	/// Entradas menos saídas do período.
+	measure 'Fluxo Líquido' = SUM('Fluxo de Caixa'[Valor com Sinal])
+		formatString: \R$ #,##0.00
+		displayFolder: Caixa
+
+	/// Fluxo líquido somado desde o início do período selecionado; vazio em datas futuras.
+	measure 'Saldo Acumulado' = ```
+			IF(
+			    MIN('Calendário'[Data]) <= TODAY(),
+			    CALCULATE(
+			        [Fluxo Líquido],
+			        FILTER(
+			            ALLSELECTED('Calendário'[Data]),
+			            'Calendário'[Data] <= MAX('Calendário'[Data])
+			        )
+			    )
+			)
+			```
+		formatString: \R$ #,##0.00
+		displayFolder: Caixa
+
+	/// Frase-resumo do slide Fluxo de Caixa.
+	measure 'Manchete Fluxo' = ```
+			VAR Ent = COALESCE([Entradas], 0)
+			VAR Sai = COALESCE([Saídas], 0)
+			VAR Liq = Ent - Sai
+			RETURN
+			    "Entraram " & IF(ABS(Ent) >= 1000000, FORMAT(Ent / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Ent) >= 1000, FORMAT(Ent / 1000, "\R$ #,##0.0") & " mil", FORMAT(Ent, "\R$ #,##0"))) & " e saíram " & IF(ABS(Sai) >= 1000000, FORMAT(Sai / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(Sai) >= 1000, FORMAT(Sai / 1000, "\R$ #,##0.0") & " mil", FORMAT(Sai, "\R$ #,##0")))
+			        & ": o caixa " & IF(Liq >= 0, "cresceu ", "diminuiu ") & IF(ABS(ABS(Liq)) >= 1000000, FORMAT(ABS(Liq) / 1000000, "\R$ #,##0.00") & " Mi", IF(ABS(ABS(Liq)) >= 1000, FORMAT(ABS(Liq) / 1000, "\R$ #,##0.0") & " mil", FORMAT(ABS(Liq), "\R$ #,##0")))
+			```
+		displayFolder: Textos
+
+	column Empresa
+		dataType: string
+		sourceColumn: empresa
+
+	/// Data da baixa do título.
+	column Data
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: data
+
+	/// receber (entrada) ou pagar (saída).
+	column Tipo
+		dataType: string
+		sourceColumn: tipo
+
+	column Categoria
+		dataType: string
+		sourceColumn: categoria
+
+	/// Conta bancária ou caixa que recebeu ou pagou o valor.
+	column 'Conta Financeira'
+		dataType: string
+		sourceColumn: conta_financeira
+
+	column Contato
+		dataType: string
+		sourceColumn: contato_nome
+
+	/// Valor positivo nas entradas e negativo nas saídas.
+	column 'Valor com Sinal'
+		dataType: decimal
+		isHidden
+		formatString: \R$ #,##0.00
+		sourceColumn: valor
+
+	partition 'Fluxo de Caixa' = m
+		mode: import
+		source = ```
+				let
+				    // Baixas de contas a pagar e a receber, com a conta financeira usada em cada movimento.
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    #"Selecionada a visão de fluxo de caixa" = Fonte{[Schema="public", Item="vw_fluxo_caixa"]}[Data]
+				in
+				    #"Selecionada a visão de fluxo de caixa"
+				```

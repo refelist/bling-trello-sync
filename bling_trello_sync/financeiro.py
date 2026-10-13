@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from itertools import product
 from typing import Any
 
 from .armazem import Armazem, versao_da_conta
@@ -16,6 +17,20 @@ from .bling import BlingClient
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+MAIOR_PERIODO_DIAS = 366
+
+
+def janelas_do_periodo(inicio: str, fim: str, dias: int = MAIOR_PERIODO_DIAS) -> list[tuple[str, str]]:
+    """Divide o período em janelas de até `dias` dias, o máximo que o Bling aceita por consulta."""
+    atual = date.fromisoformat(inicio)
+    ultimo = date.fromisoformat(fim)
+    janelas: list[tuple[str, str]] = []
+    while atual <= ultimo:
+        final = min(atual + timedelta(days=dias - 1), ultimo)
+        janelas.append((atual.isoformat(), final.isoformat()))
+        atual = final + timedelta(days=1)
+    return janelas
 
 
 @dataclass
@@ -46,11 +61,12 @@ def _int(valor: Any) -> int | None:
 
 
 def _data(valor: Any) -> str | None:
-    """Mantém só a parte AAAA-MM-DD; devolve None quando o Bling manda vazio."""
-    texto = str(valor or "").strip()
-    if not texto:
+    """Mantém só a parte AAAA-MM-DD; devolve None quando o Bling manda vazio ou "0000-00-00"."""
+    texto = str(valor or "").strip()[:10]
+    try:
+        return date.fromisoformat(texto).isoformat()
+    except ValueError:
         return None
-    return texto[:10]
 
 
 def _texto(valor: Any) -> str | None:
@@ -165,15 +181,19 @@ def linha_conta_pagar(conta: dict[str, Any], empresa: str, agora: str) -> dict[s
 def linhas_do_bordero(
     bordero: dict[str, Any], empresa: str, tipo: str, conta_id: int
 ) -> list[dict[str, Any]]:
-    """Um movimento de caixa por pagamento do borderô, ligado à conta que o originou."""
+    """Um movimento de caixa por pagamento do borderô, ligado à conta que o originou.
+
+    `sequencia` distingue vários pagamentos no mesmo borderô+conta (PK do armazém).
+    """
     linhas = []
-    for pagamento in bordero.get("pagamentos") or []:
+    for sequencia, pagamento in enumerate(bordero.get("pagamentos") or []):
         contato = pagamento.get("contato") or {}
         linhas.append(
             {
                 "empresa": empresa,
                 "bordero_id": _int(bordero.get("id")),
                 "conta_id": conta_id,
+                "sequencia": sequencia,
                 "tipo": tipo,
                 "data": _data(bordero.get("data")),
                 "valor_pago": _float(pagamento.get("valorPago")),
@@ -251,10 +271,10 @@ class ColetorFinanceiro:
     def _contas_receber_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
         """Contas a receber emitidas, vencidas ou recebidas no período, sem repetir."""
         encontradas: dict[int, dict[str, Any]] = {}
-        for tipo_filtro in ("E", "V", "R"):
+        for (ini, fin), tipo_filtro in product(janelas_do_periodo(inicio, fim), ("E", "V", "R")):
             registros = self._paginar(
-                lambda p, t=tipo_filtro: self.bling.listar_contas_receber(
-                    pagina=p, tipo_filtro_data=t, data_inicial=inicio, data_final=fim
+                lambda p, t=tipo_filtro, i=ini, f=fin: self.bling.listar_contas_receber(
+                    pagina=p, tipo_filtro_data=t, data_inicial=i, data_final=f
                 )
             )
             for registro in registros:
@@ -265,11 +285,11 @@ class ColetorFinanceiro:
 
     def _contas_pagar_do_periodo(self, inicio: str, fim: str) -> dict[int, dict[str, Any]]:
         encontradas: dict[int, dict[str, Any]] = {}
-        filtros = (
-            {"data_emissao_inicial": inicio, "data_emissao_final": fim},
-            {"data_vencimento_inicial": inicio, "data_vencimento_final": fim},
-            {"data_pagamento_inicial": inicio, "data_pagamento_final": fim},
-        )
+        filtros = [
+            {f"data_{campo}_inicial": ini, f"data_{campo}_final": fin}
+            for ini, fin in janelas_do_periodo(inicio, fim)
+            for campo in ("emissao", "vencimento", "pagamento")
+        ]
         for filtro in filtros:
             registros = self._paginar(
                 lambda p, f=filtro: self.bling.listar_contas_pagar(pagina=p, **f)
@@ -312,7 +332,7 @@ class ColetorFinanceiro:
             detalhe = {**resumida, **detalhe, "id": conta_id}
             linhas.append(montar_linha(detalhe, self.empresa, agora))
             contato = linha_contato(detalhe.get("contato") or {}, self.empresa)
-            if contato is not None:
+            if contato is not None and contato["nome"] is not None:
                 contatos.append(contato)
             for bordero_id in detalhe.get("borderos") or []:
                 identificador = _int(bordero_id)
@@ -334,15 +354,37 @@ class ColetorFinanceiro:
         resumo.somar(
             "movimento_caixa",
             self.armazem.gravar(
-                "movimento_caixa", _sem_repetir(movimentos, ("bordero_id", "conta_id"))
+                "movimento_caixa",
+                _sem_repetir(movimentos, ("bordero_id", "conta_id", "sequencia")),
             ),
         )
 
+    def completar_contatos(self, resumo: ResumoFinanceiro) -> None:
+        """Busca no cadastro do Bling o nome dos contatos que vieram só com o código."""
+        contatos: list[dict[str, Any]] = []
+        for contato_id in self.armazem.contatos_sem_nome(self.empresa):
+            try:
+                detalhe = self.bling.obter_contato(contato_id)
+            except Exception as erro:  # noqa: BLE001 - o nome do contato é complementar
+                logger.warning("Falha ao ler o contato %s: %s", contato_id, erro)
+                resumo.erros.append((f"contato:{contato_id}", str(erro)))
+                continue
+            contato = linha_contato({**detalhe, "id": contato_id}, self.empresa)
+            if contato is not None:
+                contatos.append(contato)
+        resumo.somar("contato", self.armazem.gravar("contato", contatos))
+
     def coletar_pedidos_venda(self, inicio: str, fim: str, resumo: ResumoFinanceiro) -> None:
         agora = datetime.now().isoformat(timespec="seconds")
-        pedidos = self._paginar(
-            lambda p: self.bling.listar_pedidos_vendas(pagina=p, data_inicial=inicio, data_final=fim)
-        )
+        pedidos: list[dict[str, Any]] = []
+        for ini, fin in janelas_do_periodo(inicio, fim):
+            pedidos.extend(
+                self._paginar(
+                    lambda p, i=ini, f=fin: self.bling.listar_pedidos_vendas(
+                        pagina=p, data_inicial=i, data_final=f
+                    )
+                )
+            )
         linhas = [linha_pedido_venda(pedido, self.empresa, agora) for pedido in pedidos]
         resumo.somar("pedido_venda", self.armazem.gravar("pedido_venda", linhas))
 
@@ -382,6 +424,7 @@ class ColetorFinanceiro:
             resumo,
             recarregar_tudo,
         )
+        self.completar_contatos(resumo)
         self.coletar_pedidos_venda(data_inicial, data_final, resumo)
         logger.info("Coleta financeira de %s a %s: %s", data_inicial, data_final, resumo)
         return resumo

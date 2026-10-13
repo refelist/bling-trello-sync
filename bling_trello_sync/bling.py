@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import threading
 import time
 from typing import Any
 from urllib.parse import urlencode
@@ -8,6 +9,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .config import Settings
+from .metricas import metricas
 from .storage import Storage, TokenBling
 
 TENTATIVAS_LIMITE_TAXA = 5
@@ -32,6 +34,7 @@ class BlingClient:
         self.settings = settings
         self.storage = storage
         self._client = client or httpx.Client(timeout=30)
+        self._token_lock = threading.Lock()
 
     def url_de_autorizacao(self, state: str) -> str:
         params = {
@@ -76,7 +79,19 @@ class BlingClient:
         )
 
     def renovar_token(self, refresh_token: str) -> TokenBling:
-        return self._requisitar_token({"grant_type": "refresh_token", "refresh_token": refresh_token})
+        """Renova o access token. Serializado para não invalidar o refresh em paralelo."""
+        with self._token_lock:
+            atual = self.storage.obter_token()
+            # Outra thread pode ter renovado enquanto esperávamos o lock.
+            if (
+                atual is not None
+                and not atual.expirado
+                and atual.refresh_token != refresh_token
+            ):
+                return atual
+            return self._requisitar_token(
+                {"grant_type": "refresh_token", "refresh_token": refresh_token}
+            )
 
     def _access_token(self) -> str:
         token = self.storage.obter_token()
@@ -110,9 +125,14 @@ class BlingClient:
         for tentativa in range(TENTATIVAS_LIMITE_TAXA):
             if resposta.status_code != 429:
                 break
+            metricas.registrar_429()
             time.sleep(self._espera_do_limite(resposta, tentativa))
             resposta = self._client.get(url, params=params, headers=headers)
-        resposta.raise_for_status()
+        try:
+            resposta.raise_for_status()
+        except httpx.HTTPStatusError:
+            metricas.registrar_erro_http()
+            raise
         return resposta.json()
 
     def obter_pedido_venda(self, pedido_id: int) -> dict[str, Any]:

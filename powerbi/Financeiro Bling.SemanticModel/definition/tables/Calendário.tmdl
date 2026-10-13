@@ -1,0 +1,97 @@
+/// Calendário contínuo, do primeiro ao último ano com datas nos dados financeiros.
+table Calendário
+	dataCategory: Time
+
+	column Data
+		dataType: dateTime
+		isKey
+		formatString: Short Date
+		summarizeBy: none
+		sourceColumn: Data
+
+	column Ano
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Ano
+
+	/// Número do mês, usado para ordenar o nome do mês.
+	column 'Mês Nº'
+		dataType: int64
+		isHidden
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Mês Nº
+
+	column Mês
+		dataType: string
+		summarizeBy: none
+		sortByColumn: 'Mês Nº'
+		sourceColumn: Mês
+
+	column Dia
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Dia
+
+	/// Ano e mês no formato 2026-01, útil para ordenar eixos de gráficos.
+	column 'Ano-Mês'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Ano-Mês
+
+	/// Mês e ano abreviados (out/25), para rótulos curtos nos eixos dos gráficos.
+	column 'Mês/Ano'
+		dataType: string
+		summarizeBy: none
+		sortByColumn: 'Ano-Mês'
+		sourceColumn: Mês/Ano
+
+	column Trimestre
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Trimestre
+
+	hierarchy 'Ano > Mês'
+
+		level Ano
+			column: Ano
+
+		level Trimestre
+			column: Trimestre
+
+		level Mês
+			column: Mês
+
+	partition Calendário = m
+		mode: import
+		source = ```
+				let
+				    Fonte = PostgreSQL.Database(#"Servidor", #"Banco"),
+				    Lancamentos = Fonte{[Schema="public", Item="vw_lancamento"]}[Data],
+				    FluxoCaixa = Fonte{[Schema="public", Item="vw_fluxo_caixa"]}[Data],
+				    Faturamento = Fonte{[Schema="public", Item="vw_faturamento"]}[Data],
+				    Datas = List.RemoveNulls({
+				        List.Min(Lancamentos[data_emissao]), List.Max(Lancamentos[data_emissao]),
+				        List.Min(Lancamentos[competencia]), List.Max(Lancamentos[competencia]),
+				        List.Min(Lancamentos[vencimento]), List.Max(Lancamentos[vencimento]),
+				        List.Min(FluxoCaixa[data]), List.Max(FluxoCaixa[data]),
+				        List.Min(Faturamento[data]), List.Max(Faturamento[data])
+				    }),
+				    Hoje = Date.From(DateTime.LocalNow()),
+				    Inicio = #date(Date.Year(if List.IsEmpty(Datas) then Hoje else Date.From(List.Min(Datas))), 1, 1),
+				    Fim = #date(Date.Year(if List.IsEmpty(Datas) then Hoje else Date.From(List.Max(Datas))), 12, 31),
+				    Dias = List.Dates(Inicio, Duration.Days(Fim - Inicio) + 1, #duration(1, 0, 0, 0)),
+				    Tabela = Table.FromList(Dias, Splitter.SplitByNothing(), type table [Data = date]),
+				    NomesMeses = {"jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"},
+				    ComAno = Table.AddColumn(Tabela, "Ano", each Date.Year([Data]), Int64.Type),
+				    ComMesNumero = Table.AddColumn(ComAno, "Mês Nº", each Date.Month([Data]), Int64.Type),
+				    ComMes = Table.AddColumn(ComMesNumero, "Mês", each NomesMeses{Date.Month([Data]) - 1}, type text),
+				    ComAnoMes = Table.AddColumn(ComMes, "Ano-Mês", each Date.ToText([Data], "yyyy-MM"), type text),
+				    ComTrimestre = Table.AddColumn(ComAnoMes, "Trimestre", each "T" & Text.From(Date.QuarterOfYear([Data])), type text),
+				    ComDia = Table.AddColumn(ComTrimestre, "Dia", each Date.Day([Data]), Int64.Type),
+				    ComMesAno = Table.AddColumn(ComDia, "Mês/Ano", each NomesMeses{Date.Month([Data]) - 1} & "/" & Text.End(Text.From(Date.Year([Data])), 2), type text)
+				in
+				    ComMesAno
+				```

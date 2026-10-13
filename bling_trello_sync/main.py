@@ -3,9 +3,9 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .armazem import Armazem
@@ -13,6 +13,7 @@ from .bling import BlingClient, validar_assinatura
 from .compras import SincronizadorCompras
 from .config import Settings, get_settings
 from .financeiro import ColetorFinanceiro
+from .metricas import metricas
 from .storage import Storage
 from .sync import Sincronizador
 from .trello import TrelloClient
@@ -21,8 +22,19 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+def _purgar_eventos_antigos(settings: Settings | None = None) -> None:
+    cfg = settings or get_settings()
+    try:
+        apagados = Storage(cfg.database_path).purgar_eventos(cfg.eventos_retencao_dias)
+        if apagados:
+            logger.info("Purge de eventos: %s registros antigos removidos", apagados)
+    except Exception:  # noqa: BLE001 - purge não pode derrubar o processo
+        logger.exception("Falha ao purgar eventos processados antigos")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _purgar_eventos_antigos()
     tarefas = [_iniciar_compras(), _iniciar_financeiro()]
     try:
         yield
@@ -50,6 +62,10 @@ def get_bling(
 
 
 def get_trello(settings: Settings = Depends(get_settings)) -> TrelloClient:
+    try:
+        settings.exigir_trello()
+    except ValueError as erro:
+        raise HTTPException(status_code=503, detail=str(erro)) from erro
     return TrelloClient(settings.trello_api_key, settings.trello_token)
 
 
@@ -71,6 +87,25 @@ def get_sincronizador(
     return Sincronizador(settings, storage, bling, trello)
 
 
+def exigir_api_token(
+    settings: Settings = Depends(get_settings),
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> None:
+    """Exige API_TOKEN (Bearer ou X-API-Key). Não aceita query string — evita vazamento em logs."""
+    esperado = settings.api_token
+    if not esperado:
+        raise HTTPException(
+            status_code=503,
+            detail="API_TOKEN não configurado. Defina a variável no .env para usar esta rota.",
+        )
+    candidato = x_api_key
+    if candidato is None and authorization and authorization.lower().startswith("bearer "):
+        candidato = authorization[7:].strip()
+    if not candidato or not secrets.compare_digest(candidato, esperado):
+        raise HTTPException(status_code=401, detail="Token de API inválido ou ausente")
+
+
 def extrair_id_pedido(data: Any) -> int | None:
     if isinstance(data, dict):
         for chave in ("id", "idPedidoVenda", "idPedido"):
@@ -88,8 +123,10 @@ def _iniciar_compras() -> "asyncio.Task[None] | None":
     settings = get_settings()
     if not settings.compras_ativo:
         return None
-    if not settings.trello_board_id_compras:
-        logger.warning("COMPRAS_ATIVO ligado sem TRELLO_BOARD_ID_COMPRAS; compras desativadas")
+    if not settings.trello_configurado or not settings.trello_board_id_compras:
+        logger.warning(
+            "COMPRAS_ATIVO ligado sem Trello completo ou TRELLO_BOARD_ID_COMPRAS; compras desativadas"
+        )
         return None
     logger.info(
         "Sincronização de pedidos de compra ativa (a cada %s min)",
@@ -110,13 +147,15 @@ async def _loop_compras(settings: Settings) -> None:
     )
     while True:
         try:
+            _purgar_eventos_antigos(settings)
             resumo = await asyncio.to_thread(compras.sincronizar_lote)
             logger.info(
-                "Compras: %s encontradas | %s criadas | %s atualizadas | %s erros",
+                "Compras: %s encontradas | %s criadas | %s atualizadas | %s erros | 429=%s",
                 resumo.pedidos_encontrados,
                 resumo.cards_criados,
                 resumo.cards_atualizados,
                 len(resumo.erros),
+                metricas.instantaneo()["bling_429"],
             )
         except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
             logger.exception("Falha ao sincronizar os pedidos de compra")
@@ -144,8 +183,14 @@ async def _loop_financeiro(settings: Settings) -> None:
     )
     while True:
         try:
+            _purgar_eventos_antigos(settings)
             resumo = await asyncio.to_thread(coletor.coletar)
-            logger.info("Financeiro: %s | %s erros", resumo, len(resumo.erros))
+            logger.info(
+                "Financeiro: %s | %s erros | 429=%s",
+                resumo,
+                len(resumo.erros),
+                metricas.instantaneo()["bling_429"],
+            )
         except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
             logger.exception("Falha ao coletar os dados financeiros")
         await asyncio.sleep(intervalo)
@@ -156,21 +201,64 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+def metrics() -> dict[str, int]:
+    """Contadores do processo (limites de taxa e erros HTTP do Bling)."""
+    return metricas.instantaneo()
+
+
+@app.get("/readyz")
+def readyz(storage: Storage = Depends(get_storage)) -> dict[str, str]:
+    """Pronto para tráfego: SQLite abre e há token Bling armazenado."""
+    try:
+        token = storage.obter_token()
+    except Exception as erro:  # noqa: BLE001 - readiness não pode derrubar o worker
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {erro}") from erro
+    if token is None:
+        raise HTTPException(status_code=503, detail="token Bling ausente; rode a autorização")
+    return {"status": "ready"}
+
+
+@app.post("/oauth/bling/ticket", dependencies=[Depends(exigir_api_token)])
+def emitir_ticket_oauth(storage: Storage = Depends(get_storage)) -> dict[str, str]:
+    """Emite ticket de uso único (5 min) para abrir /oauth/bling/autorizar no navegador."""
+    ticket = storage.emitir_oauth_ticket()
+    return {
+        "ticket": ticket,
+        "autorizar": f"/oauth/bling/autorizar?ticket={ticket}",
+    }
+
+
 @app.get("/oauth/bling/autorizar")
-def autorizar(bling: BlingClient = Depends(get_bling)) -> RedirectResponse:
-    """Inicia o fluxo OAuth2 do Bling (abra no navegador e autorize o aplicativo)."""
-    return RedirectResponse(bling.url_de_autorizacao(state=secrets.token_urlsafe(16)))
+def autorizar(
+    ticket: Annotated[str | None, Query()] = None,
+    bling: BlingClient = Depends(get_bling),
+    storage: Storage = Depends(get_storage),
+) -> RedirectResponse:
+    """Inicia o OAuth2 do Bling. Exige ticket one-time (POST /oauth/bling/ticket), não o API_TOKEN."""
+    if not ticket or not storage.consumir_oauth_ticket(ticket):
+        raise HTTPException(status_code=401, detail="Ticket inválido, expirado ou ausente")
+    state = secrets.token_urlsafe(16)
+    storage.salvar_oauth_state(state)
+    return RedirectResponse(bling.url_de_autorizacao(state=state))
 
 
 @app.get("/oauth/bling/callback")
-def callback(code: str | None = None, bling: BlingClient = Depends(get_bling)) -> dict[str, str]:
+def callback(
+    code: str | None = None,
+    state: str | None = None,
+    bling: BlingClient = Depends(get_bling),
+    storage: Storage = Depends(get_storage),
+) -> dict[str, str]:
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente no callback")
+    if not state or not storage.consumir_oauth_state(state):
+        raise HTTPException(status_code=400, detail="Parâmetro 'state' inválido ou ausente")
     bling.trocar_codigo_por_token(code)
     return {"status": "autorizado", "mensagem": "Tokens do Bling armazenados com sucesso."}
 
 
-@app.get("/trello/listas")
+@app.get("/trello/listas", dependencies=[Depends(exigir_api_token)])
 def listas_do_board(
     settings: Settings = Depends(get_settings), trello: TrelloClient = Depends(get_trello)
 ) -> list[dict[str, Any]]:
@@ -178,7 +266,7 @@ def listas_do_board(
     return trello.listar_listas(settings.trello_board_id)
 
 
-@app.post("/sincronizar/{pedido_id}")
+@app.post("/sincronizar/{pedido_id}", dependencies=[Depends(exigir_api_token)])
 def sincronizar_manual(
     pedido_id: int, sincronizador: Sincronizador = Depends(get_sincronizador)
 ) -> dict[str, Any]:
@@ -186,7 +274,7 @@ def sincronizar_manual(
     return resultado.__dict__
 
 
-@app.post("/sincronizar-compra/{pedido_id}")
+@app.post("/sincronizar-compra/{pedido_id}", dependencies=[Depends(exigir_api_token)])
 def sincronizar_compra_manual(
     pedido_id: int, compras: SincronizadorCompras = Depends(get_sincronizador_compras)
 ) -> dict[str, Any]:
@@ -224,18 +312,35 @@ async def webhook_bling(
         logger.warning("Webhook sem id de pedido identificável: %s", evento)
         return JSONResponse({"status": "ignorado", "motivo": "id do pedido não encontrado no payload"})
 
-    if event_id and not storage.registrar_evento(event_id):
+    # Claim atômico: evita duas syncs do mesmo eventId em paralelo. Se falhar depois, libera.
+    if event_id and not storage.reclamar_evento(event_id):
         return JSONResponse({"status": "ignorado", "motivo": "evento já processado"})
 
     acao = nome_evento.split(".", 1)[1]
     # O Bling exige resposta 2xx em até 5s, então a sincronização roda fora do ciclo da requisição.
-    background_tasks.add_task(_processar, sincronizador, pedido_id, acao)
+    background_tasks.add_task(_processar, sincronizador, storage, pedido_id, acao, event_id)
     return JSONResponse({"status": "recebido", "pedidoId": pedido_id, "acao": acao}, status_code=202)
 
 
-def _processar(sincronizador: Sincronizador, pedido_id: int, acao: str) -> None:
+def _processar(
+    sincronizador: Sincronizador,
+    storage: Storage,
+    pedido_id: int,
+    acao: str,
+    event_id: str,
+) -> None:
     try:
         resultado = sincronizador.sincronizar_pedido(pedido_id)
+        if event_id:
+            if resultado.acao == "ignorado":
+                # Loja filtrada: libera o claim para poder reprocessar se o filtro mudar.
+                storage.liberar_evento(event_id)
+            else:
+                storage.concluir_evento(event_id)
         logger.info("Pedido %s (%s): %s", pedido_id, acao, resultado.acao)
     except Exception:  # noqa: BLE001 - background task não pode derrubar o servidor
-        logger.exception("Falha ao sincronizar o pedido %s", pedido_id)
+        if event_id:
+            storage.liberar_evento(event_id)
+        logger.exception(
+            "Falha ao sincronizar o pedido %s; o evento foi liberado para reenvio", pedido_id
+        )

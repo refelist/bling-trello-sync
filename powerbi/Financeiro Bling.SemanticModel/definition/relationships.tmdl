@@ -1,0 +1,49 @@
+relationship Empresa_Lancamentos
+	fromColumn: Lançamentos.Empresa
+	toColumn: Empresa.Empresa
+
+relationship Empresa_DRE
+	fromColumn: DRE.Empresa
+	toColumn: Empresa.Empresa
+
+relationship Empresa_FluxoCaixa
+	fromColumn: 'Fluxo de Caixa'.Empresa
+	toColumn: Empresa.Empresa
+
+relationship Empresa_ContasEmAberto
+	fromColumn: 'Contas em Aberto'.Empresa
+	toColumn: Empresa.Empresa
+
+relationship Empresa_Faturamento
+	fromColumn: Faturamento.Empresa
+	toColumn: Empresa.Empresa
+
+relationship Calendario_Lancamentos_Vencimento
+	fromColumn: Lançamentos.Vencimento
+	toColumn: Calendário.Data
+
+relationship Calendario_Lancamentos_Competencia
+	isActive: false
+	fromColumn: Lançamentos.Competência
+	toColumn: Calendário.Data
+
+relationship Calendario_Lancamentos_Emissao
+	isActive: false
+	fromColumn: Lançamentos.Emissão
+	toColumn: Calendário.Data
+
+relationship Calendario_DRE
+	fromColumn: DRE.Competência
+	toColumn: Calendário.Data
+
+relationship Calendario_FluxoCaixa
+	fromColumn: 'Fluxo de Caixa'.Data
+	toColumn: Calendário.Data
+
+relationship Calendario_ContasEmAberto
+	fromColumn: 'Contas em Aberto'.Vencimento
+	toColumn: Calendário.Data
+
+relationship Calendario_Faturamento
+	fromColumn: Faturamento.Data
+	toColumn: Calendário.Data
