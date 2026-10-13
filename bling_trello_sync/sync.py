@@ -1,52 +1,23 @@
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from typing import Any
 
 import httpx
 
 from .bling import BlingClient
+from .checklist import sincronizar_checklist
 from .config import Settings, normalizar
+from .formatacao import data_brasileira, data_para_trello, moeda, quantidade
 from .storage import Storage
 from .trello import CardNaoEncontrado, TrelloClient
 
 logger = logging.getLogger(__name__)
 
-
-def _moeda(valor: Any) -> str:
-    try:
-        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
-        return "-"
-
-
-def _data_para_trello(valor: Any) -> str | None:
-    """Converte a data do Bling para ISO-8601; datas ausentes ou zeradas viram None."""
-    if not isinstance(valor, str) or not valor.strip():
-        return None
-    texto = valor.strip()
-    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            momento = datetime.strptime(texto, formato)
-        except ValueError:
-            continue
-        if momento.date() == date(1, 1, 1):
-            return None
-        return momento.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    return None
-
-
-def _data_brasileira(valor: Any) -> str | None:
-    """Formata datas do Bling (com ou sem hora, ISO ou não) como dd/mm/aaaa."""
-    if not isinstance(valor, str) or not valor.strip():
-        return None
-    texto = valor.strip().replace("T", " ")[:19]
-    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(texto, formato).strftime("%d/%m/%Y")
-        except ValueError:
-            continue
-    return None
+# Aliases mantidos para testes e imports legados.
+_moeda = moeda
+_data_para_trello = data_para_trello
+_data_brasileira = data_brasileira
+_quantidade = quantidade
 
 
 def comentario_da_nota(nota: dict[str, Any]) -> str | None:
@@ -58,7 +29,7 @@ def comentario_da_nota(nota: dict[str, Any]) -> str | None:
         (
             formatada
             for campo in ("dataEmissao", "dataOperacao", "data")
-            if (formatada := _data_brasileira(nota.get(campo)))
+            if (formatada := data_brasileira(nota.get(campo)))
         ),
         None,
     )
@@ -81,7 +52,7 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
         f"**Pedido Bling:** {pedido.get('numero', '-')} (id `{pedido.get('id', '-')}`)",
         f"**Cliente:** {contato.get('nome', '-')} - {contato.get('numeroDocumento', '-')}",
         f"**Data:** {pedido.get('data', '-')} | **Prevista:** {pedido.get('dataPrevista', '-')}",
-        f"**Total:** {_moeda(pedido.get('total'))} (produtos {_moeda(pedido.get('totalProdutos'))})",
+        f"**Total:** {moeda(pedido.get('total'))} (produtos {moeda(pedido.get('totalProdutos'))})",
     ]
     situacao_id = (pedido.get("situacao") or {}).get("id")
     if nome_situacao:
@@ -98,10 +69,10 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
         linhas.append("")
         linhas.append("**Itens:**")
         for item in itens:
-            quantidade = item.get("quantidade", 0)
+            qtd = item.get("quantidade", 0)
             linhas.append(
                 f"- {item.get('codigo', '')} {item.get('descricao', '')} — "
-                f"{quantidade:g} x {_moeda(item.get('valor'))}".strip()
+                f"{qtd:g} x {moeda(item.get('valor'))}".strip()
             )
 
     observacoes = pedido.get("observacoes")
@@ -109,16 +80,6 @@ def descricao_do_card(pedido: dict[str, Any], nome_situacao: str | None = None) 
         linhas.extend(["", f"**Observações:** {observacoes}"])
 
     return "\n".join(linhas)
-
-
-NOME_CHECKLIST = "Itens do pedido"
-
-
-def _quantidade(item: dict[str, Any]) -> float:
-    try:
-        return float(item.get("quantidade", 0) or 0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _chaves_do_item(item: dict[str, Any]) -> list[str]:
@@ -139,9 +100,9 @@ def quantidades_faturadas(notas: list[dict[str, Any]]) -> dict[str, float]:
     totais: dict[str, float] = {}
     for nota in notas:
         for item in nota.get("itens") or []:
-            quantidade = _quantidade(item)
+            qtd = quantidade(item)
             for chave in _chaves_do_item(item):
-                totais[chave] = totais.get(chave, 0.0) + quantidade
+                totais[chave] = totais.get(chave, 0.0) + qtd
     return totais
 
 
@@ -152,12 +113,12 @@ def itens_do_checklist(
     faturadas = faturadas or {}
     itens = []
     for item in pedido.get("itens") or []:
-        quantidade = _quantidade(item)
+        qtd = quantidade(item)
         codigo = item.get("codigo") or ""
         descricao = item.get("descricao") or ""
-        nome = f"{quantidade:g} x {codigo} {descricao}".replace("  ", " ").strip()
+        nome = f"{qtd:g} x {codigo} {descricao}".replace("  ", " ").strip()
         faturada = max((faturadas.get(chave, 0.0) for chave in _chaves_do_item(item)), default=0.0)
-        itens.append((nome, quantidade > 0 and faturada + 1e-6 >= quantidade))
+        itens.append((nome, qtd > 0 and faturada + 1e-6 >= qtd))
     return itens
 
 
@@ -277,29 +238,6 @@ class Sincronizador:
             if self.storage.registrar_nota_comentada(pedido_id, int(nota_id)):
                 self.trello.comentar(card_id, texto)
 
-    def _sincronizar_checklist(self, card_id: str, itens: list[tuple[str, bool]]) -> None:
-        """Mantém o checklist igual aos produtos do pedido, preservando os itens já marcados."""
-        if not itens:
-            return
-        checklist = next(
-            (c for c in self.trello.listar_checklists(card_id) if c.get("name") == NOME_CHECKLIST),
-            None,
-        )
-        if checklist is None:
-            checklist = self.trello.criar_checklist(card_id, NOME_CHECKLIST)
-
-        existentes = {item.get("name"): item for item in checklist.get("checkItems") or []}
-        nomes = {nome for nome, _ in itens}
-        for nome, faturado in itens:
-            atual = existentes.get(nome)
-            if atual is None:
-                self.trello.criar_item_checklist(checklist["id"], nome, faturado)
-            elif faturado and atual.get("state") != "complete":
-                self.trello.marcar_item_checklist(card_id, atual["id"])
-        for nome, item in existentes.items():
-            if nome not in nomes:
-                self.trello.remover_item_checklist(checklist["id"], item["id"])
-
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_venda(pedido_id)
         loja_id = (pedido.get("loja") or {}).get("id")
@@ -311,7 +249,7 @@ class Sincronizador:
         id_list = self._id_da_lista(self.settings.lista_para_situacao(situacao_id, nome_situacao))
         nome = titulo_do_card(pedido)
         descricao = descricao_do_card(pedido, nome_situacao)
-        due = _data_para_trello(pedido.get("dataPrevista"))
+        due = data_para_trello(pedido.get("dataPrevista"))
         notas = self._notas_do_pedido(pedido)
         itens = itens_do_checklist(pedido, quantidades_faturadas(notas))
 
@@ -343,13 +281,13 @@ class Sincronizador:
                 id_labels=self.settings.trello_label_ids,
             )
             self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
-            self._sincronizar_checklist(card["id"], itens)
+            sincronizar_checklist(self.trello, card["id"], itens)
             self._comentar_notas(pedido_id, card["id"], notas)
             logger.info("Card criado para o pedido %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card(pedido_id, card["id"], card["shortUrl"], situacao_id)
-        self._sincronizar_checklist(card["id"], itens)
+        sincronizar_checklist(self.trello, card["id"], itens)
         self._comentar_notas(pedido_id, card["id"], notas)
         if existente.situacao_id != situacao_id and situacao_id is not None:
             self.trello.comentar(

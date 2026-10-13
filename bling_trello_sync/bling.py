@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .config import Settings
+from .metricas import metricas
 from .storage import Storage, TokenBling
 
 TENTATIVAS_LIMITE_TAXA = 5
@@ -124,9 +125,14 @@ class BlingClient:
         for tentativa in range(TENTATIVAS_LIMITE_TAXA):
             if resposta.status_code != 429:
                 break
+            metricas.registrar_429()
             time.sleep(self._espera_do_limite(resposta, tentativa))
             resposta = self._client.get(url, params=params, headers=headers)
-        resposta.raise_for_status()
+        try:
+            resposta.raise_for_status()
+        except httpx.HTTPStatusError:
+            metricas.registrar_erro_http()
+            raise
         return resposta.json()
 
     def obter_pedido_venda(self, pedido_id: int) -> dict[str, Any]:

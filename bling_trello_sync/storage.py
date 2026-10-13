@@ -248,6 +248,18 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    def purgar_eventos(self, dias: int = 30) -> int:
+        """Remove eventos concluídos mais antigos que `dias`. Devolve quantos foram apagados."""
+        if dias <= 0:
+            return 0
+        limite = time.time() - dias * 86400
+        with self._conexao() as conn:
+            cursor = conn.execute(
+                "DELETE FROM evento_processado WHERE status = 'done' AND processado_em < ?",
+                (limite,),
+            )
+            return cursor.rowcount
+
     def salvar_oauth_state(self, state: str) -> None:
         self.salvar_estado(CHAVE_OAUTH_STATE, state)
 

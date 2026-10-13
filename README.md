@@ -1,140 +1,149 @@
 # bling-trello-sync
 
-Integração que lê os **pedidos de venda do Bling** (API v3) e cria/atualiza um **card no Trello** para cada pedido. Funciona de dois jeitos, com a mesma lógica de sincronização:
+Integração operacional entre o **Bling** (API v3) e as ferramentas internas da Refelist. O mesmo processo cobre **três frentes** independentes, ativáveis por configuração:
 
-- **linha de comando**: sincroniza quando você roda o comando (ou por cron);
-- **modo servidor** (`bling_trello_sync.main`): recebe o webhook do Bling e sincroniza o pedido no momento em que ele muda.
+| Frente | Origem | Destino | Disparo |
+|---|---|---|---|
+| **Vendas** | Pedidos de venda + NFs | Cards no Trello | Webhook do Bling ou CLI |
+| **Compras** | Pedidos de compra | Quadro Trello separado | Polling periódico (sem webhook no Bling) |
+| **Financeiro** | Contas, borderôs, pedidos | Postgres (Power BI / Grafana) | Polling periódico ou CLI |
 
-Cada sincronização:
+Duas contas Bling (**JH Shopping LTDA** e **JHS Shopping LTDA**) rodam como processos separados, cada um com o próprio SQLite operacional e o mesmo Postgres financeiro, separados pela coluna `empresa`.
 
-1. busca os pedidos alterados desde a última execução (ou no período que você informar);
-2. cria um card para o pedido que ainda não tem card, na lista correspondente à situação;
-3. cria no card um checklist "Itens do pedido", com um item por produto, marcando automaticamente os produtos já faturados nas notas fiscais do pedido (os itens marcados à mão são preservados nas execuções seguintes);
-4. comenta no card o número e a data de emissão de cada nota fiscal do pedido (uma vez por nota);
-5. atualiza título, descrição e vencimento do card já existente e o move de lista se a situação mudou (deixando um comentário no card);
-6. guarda o momento da execução para que a próxima continue de onde parou.
+## Visão geral da arquitetura
 
-O vínculo `pedido → card` fica em um banco SQLite local, então um pedido nunca vira dois cards.
+```
+Bling (API + webhook)
+        │
+        ├─► vendas  ──► Trello (board de pedidos)
+        ├─► compras ──► Trello (board de compras)   [COMPRAS_ATIVO]
+        └─► financeiro ──► Postgres ──► Power BI / Grafana   [FINANCEIRO_ATIVO]
+```
+
+- **SQLite** (`DATABASE_PATH`): tokens OAuth do Bling, vínculo pedido→card, eventos de webhook e tickets OAuth.
+- **Postgres** (`FINANCEIRO_DATABASE_URL`): base analítica compartilhada pelas duas empresas.
+- **Servidor FastAPI** (`bling_trello_sync.main`): webhook, OAuth, rotas admin, loops de compras/financeiro.
+- **CLI** (`bling_trello_sync.cli`): sincronização sob demanda, autorização local e utilitários.
+
+As variáveis `TRELLO_*` são obrigatórias só para vendas/compras. Uma implantação só financeira pode deixá-las vazias.
 
 ## Instalação
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env    # conta 1 (JH Shopping) — preencha os <segredos>
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.lock                    # pins reprodutíveis (CI/produção)
+# ou, para desenvolvimento: pip install -r requirements-dev.txt
+cp .env.example .env                                # conta 1 (JH Shopping) — preencha os <segredos>
 # Segunda conta Bling (outra empresa no mesmo Postgres):
 # cp .env.example.segunda-empresa /caminho/da-copia-2/.env
 ```
 
 Há dois exemplos versionados: `.env.example` (**JH Shopping LTDA**, host `refelist-bling`) e `.env.example.segunda-empresa` (**JHS Shopping LTDA**, host `refelist-bling2`). As duas compartilham o mesmo Postgres e mudam Client Id Bling, mapas de situação/lojas e `FINANCEIRO_EMPRESA`.
 
+**Não versionar** `.env`, tokens, senhas nem dumps do banco. Segredos ficam só no servidor (ou no gerenciador de segredos da equipe).
+
 ## Configuração
 
 ### 1. Aplicativo no Bling
 
 1. No Bling: **Central de Extensões → Área do Integrador → Criar aplicativo**.
-2. Escopos: **Pedidos de Venda** e **Notas Fiscais** (esse último é o que permite marcar no checklist os produtos já faturados; sem ele o checklist funciona, mas nada é marcado automaticamente). O módulo **Situações** nem sempre está disponível na lista de escopos; sem ele o card mostra o id da situação, a menos que você preencha `NOMES_SITUACOES`.
-3. Link de redirecionamento: `http://localhost:8000/callback` (o mesmo valor de `BLING_REDIRECT_URI`).
+2. Escopos conforme a frente usada:
+   - Vendas: **Pedidos de Venda** e **Notas Fiscais** (NF marca o checklist de itens faturados).
+   - Compras: pedidos de compra (e categorias, se for exibir no card).
+   - Financeiro: **Finanças** (contas a pagar/receber, categorias, contas financeiras, formas de pagamento).
+   - O módulo **Situações** nem sempre aparece na lista de escopos; sem ele, use `NOMES_SITUACOES` no `.env`.
+3. Link de redirecionamento:
+   - Produção (servidor): `https://seu-dominio/oauth/bling/callback` → `BLING_REDIRECT_URI`.
+   - CLI local: o helper `autorizar` usa o fluxo local documentado em `oauth_local`.
 4. Copie o **Client Id** e o **Client Secret** para o `.env`.
 
-### 2. Credenciais do Trello
+### 2. Credenciais do Trello (vendas e/ou compras)
 
-- API key: https://trello.com/power-ups/admin (crie um Power-Up e use a chave gerada) → `TRELLO_API_KEY`
-- Token: gere a partir dessa chave e autorize na sua conta → `TRELLO_TOKEN`
+- API key: https://trello.com/power-ups/admin → `TRELLO_API_KEY`
+- Token autorizado com essa chave → `TRELLO_TOKEN`
 - `TRELLO_BOARD_ID`: abra o board e acesse `https://trello.com/b/XXXX.json`, campo `id`
+- Compras: `TRELLO_BOARD_ID_COMPRAS` e mapas `TRELLO_LIST_ID_*_COMPRA*`
 
-### 3. Autorizar o Bling (uma única vez)
+### 3. Autorizar o Bling (uma vez por instância)
+
+**CLI (desenvolvimento / primeira carga):**
 
 ```bash
 python -m bling_trello_sync.cli autorizar
 ```
 
-O comando mostra uma URL; abra no navegador, autorize e pronto — os tokens ficam salvos e são renovados sozinhos nas execuções seguintes.
-
-### 4. Mapear situações para listas
+**Produção (servidor):** emita um ticket one-time e abra a URL no navegador (o `API_TOKEN` não vai na query string):
 
 ```bash
-python -m bling_trello_sync.cli listas-trello                    # IDs das listas do board
-python -m bling_trello_sync.cli modulos-bling                    # módulos de situação do Bling
-python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>   # situações do módulo de vendas
-python -m bling_trello_sync.cli situacoes-pedidos               # ids de situação vistos nos pedidos
+curl -s -X POST https://seu-dominio/oauth/bling/ticket \
+  -H "Authorization: Bearer $API_TOKEN"
+# abra o campo "autorizar" (?ticket=…) no navegador
 ```
 
-Preencha `TRELLO_LIST_ID_POR_SITUACAO` no `.env`. A chave pode ser o id **ou** o nome da situação; o valor, o id **ou** o nome da lista (acentos e maiúsculas não importam):
+Os tokens ficam no SQLite e são renovados automaticamente.
+
+### 4. Mapear situações → listas (vendas)
+
+```bash
+python -m bling_trello_sync.cli listas-trello
+python -m bling_trello_sync.cli modulos-bling
+python -m bling_trello_sync.cli situacoes-bling <id_do_modulo>
+python -m bling_trello_sync.cli situacoes-pedidos
+```
+
+Preencha `TRELLO_LIST_ID_POR_SITUACAO`. A chave pode ser o id **ou** o nome da situação; o valor, o id **ou** o nome da lista (acentos e maiúsculas não importam):
 
 ```json
 {"6":"PEDIDO EM ABERTO","21":"PEDIDO EM ABERTO","9":"EM TRANSITO","12":"CANCELADOS"}
 ```
 
-Qualquer situação fora do mapa cai em `TRELLO_LIST_ID_PADRAO`.
-
-Se `situacoes-bling` responder 403 (o app não tem o escopo de Situações), use `situacoes-pedidos` para ver os ids junto de números de pedido de exemplo e confira no Bling a qual situação cada um corresponde; `NOMES_SITUACOES` no `.env` dá nome a eles nos cards: `{"9":"Em aberto","12":"Atendido"}`.
+Situações fora do mapa usam `TRELLO_LIST_ID_PADRAO`. Se `situacoes-bling` retornar 403, use `situacoes-pedidos` e `NOMES_SITUACOES`.
 
 ### 5. Filtrar por loja (opcional)
 
-Pedidos vindos de marketplaces chegam com a loja da integração. Para deixá-los de fora:
-
 ```bash
-python -m bling_trello_sync.cli lojas-bling            # ids de loja dos pedidos dos últimos 30 dias
+python -m bling_trello_sync.cli lojas-bling
 ```
 
-No `.env`, `LOJAS_IGNORADAS=123,456` pula essas lojas; `LOJAS_PERMITIDAS=789` sincroniza apenas as listadas (e tem prioridade sobre a outra).
+`LOJAS_IGNORADAS=123,456` exclui; `LOJAS_PERMITIDAS=789` restringe (tem prioridade).
 
-## Uso
+## Uso — vendas (CLI)
+
+Cada sincronização de venda:
+
+1. busca pedidos alterados desde a última execução (ou o período informado);
+2. cria o card na lista da situação, com checklist "Itens do pedido" (marca itens já faturados nas NFs; marcações manuais são preservadas);
+3. comenta número e data de cada NF uma vez;
+4. atualiza título, descrição, vencimento e lista se a situação mudou;
+5. grava o ponto da execução no SQLite (um pedido nunca vira dois cards).
 
 ```bash
-# o caso normal: pedidos alterados desde a última execução
 python -m bling_trello_sync.cli sincronizar
-
-# últimos 7 dias, ignorando a última execução
 python -m bling_trello_sync.cli sincronizar --dias 7
-
-# período específico de alteração
 python -m bling_trello_sync.cli sincronizar --desde "2026-01-01 00:00:00" --ate "2026-01-31 23:59:59"
-
-# por data de emissão do pedido (carga inicial)
 python -m bling_trello_sync.cli sincronizar --data-inicial 2026-01-01 --data-final 2026-01-31
-
-# somente algumas situações
 python -m bling_trello_sync.cli sincronizar --situacoes 6,9
-
-# um pedido específico
 python -m bling_trello_sync.cli sincronizar-pedido 12345678
 ```
 
-Saída de exemplo:
+Na primeira execução sem filtro, a janela padrão é de 30 dias. Se houver erro, o marcador de última sincronização **não** avança.
 
-```
-23 pedidos processados | 5 cards criados | 18 atualizados | 0 erros
-```
+## Modo servidor (produção)
 
-Na primeira execução sem filtro, a janela considerada é a dos últimos 30 dias. Se algum pedido falhar, o erro é listado e o marcador da última execução **não** avança, para que a próxima rodada tente de novo.
-
-### Rodar automaticamente (opcional)
-
-Se um dia quiser periodicidade sem lembrar de executar, basta agendar o mesmo comando, por exemplo de hora em hora no cron:
-
-```
-0 * * * * cd /caminho/do/projeto && .venv/bin/python -m bling_trello_sync.cli sincronizar >> sync.log 2>&1
-```
-
-## Modo servidor (webhook, tempo real)
-
-O serviço FastAPI em `bling_trello_sync/main.py` expõe:
+O serviço FastAPI em `bling_trello_sync.main` expõe:
 
 | Rota | Uso | Auth |
 |---|---|---|
-| `POST /webhooks/bling` | endereço a cadastrar no webhook do Bling | assinatura HMAC do Bling |
-| `GET /healthz` | verificação de saúde (liveness) | aberta |
-| `GET /readyz` | pronto para tráfego (SQLite + token Bling) | aberta |
-| `POST /oauth/bling/ticket` | emite ticket one-time para autorizar no navegador | `API_TOKEN` |
-| `GET /oauth/bling/autorizar` | inicia autorização do Bling no navegador | `?ticket=` (uso único, 5 min) |
-| `GET /oauth/bling/callback` | retorno do Bling após autorizar | `state` OAuth emitido por `/autorizar` |
-| `GET /trello/listas` | listas do board, para montar o mapa de situações | `API_TOKEN` |
-| `POST /sincronizar/{pedido_id}` | sincroniza um pedido de venda sob demanda | `API_TOKEN` |
-| `POST /sincronizar-compra/{pedido_id}` | sincroniza um pedido de compra sob demanda | `API_TOKEN` |
-
-Rodar (produção com systemd):
+| `POST /webhooks/bling` | webhook de pedidos de venda | assinatura HMAC do Bling |
+| `GET /healthz` | liveness | aberta |
+| `GET /readyz` | readiness (SQLite + token Bling) | aberta |
+| `GET /metrics` | contadores (HTTP 429 e erros do Bling) | aberta |
+| `POST /oauth/bling/ticket` | ticket one-time para autorizar no navegador | `API_TOKEN` |
+| `GET /oauth/bling/autorizar` | inicia OAuth do Bling | `?ticket=` (uso único, 5 min) |
+| `GET /oauth/bling/callback` | retorno OAuth | `state` emitido por `/autorizar` |
+| `GET /trello/listas` | listas do board | `API_TOKEN` |
+| `POST /sincronizar/{pedido_id}` | sync manual de venda | `API_TOKEN` |
+| `POST /sincronizar-compra/{pedido_id}` | sync manual de compra | `API_TOKEN` |
 
 ```bash
 # ajuste WorkingDirectory/EnvironmentFile em deploy/*.service e depois:
@@ -146,25 +155,17 @@ sudo cp deploy/bling-trello-sync-jhs.service /etc/systemd/system/
 sudo systemctl enable --now bling-trello-sync-jhs
 ```
 
-Ou manualmente: `uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000` (o reverse proxy/Caddy faz o HTTPS).
+Ou manualmente: `uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000` (HTTPS via reverse proxy/Caddy).
 
-No `.env`, `BLING_REDIRECT_URI` deve ser `https://seu-dominio/oauth/bling/callback` e `API_TOKEN` um segredo longo. As rotas admin aceitam só `Authorization: Bearer …` ou `X-API-Key` (não use o token na query string). Para autorizar no navegador:
+No `.env`, defina `BLING_REDIRECT_URI=https://seu-dominio/oauth/bling/callback` e um `API_TOKEN` longo. Rotas admin aceitam só `Authorization: Bearer …` ou `X-API-Key` — **nunca** na query string.
 
-```bash
-curl -s -X POST https://seu-dominio/oauth/bling/ticket \
-  -H "Authorization: Bearer $API_TOKEN"
-# abra o campo "autorizar" (URL com ?ticket=…) no navegador
-```
-
-Cada evento do webhook é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. A sincronização roda em segundo plano para responder ao Bling dentro do tempo limite. O `eventId` é reservado de forma atômica no início (`processing`) e só vira `done` depois do card atualizado; se a sync falhar ou o pedido for ignorado (filtro de loja), o claim é liberado para o Bling poder reenviar.
+O webhook valida `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret). `VERIFICAR_ASSINATURA_WEBHOOK=false` só para testes locais. A sync roda em background para responder ao Bling em até ~5s. O `eventId` é reservado atomicamente (`processing`) e só vira `done` após sucesso; falha ou pedido ignorado (filtro de loja) libera o claim para reenvio. Eventos `done` mais antigos que `EVENTOS_RETENCAO_DIAS` (padrão 30) são purgados no boot e nos loops.
 
 ## Pedidos de compra
 
-Os pedidos de compra vão para um **quadro separado** do Trello. O Bling não oferece webhook de pedido de compra, então esta parte funciona por consulta periódica: com `COMPRAS_ATIVO=true`, o serviço varre os pedidos de compra dos últimos `COMPRAS_DIAS` a cada `COMPRAS_INTERVALO_MINUTOS` minutos.
+Quadro Trello separado. Sem webhook no Bling: com `COMPRAS_ATIVO=true`, o serviço varre os últimos `COMPRAS_DIAS` a cada `COMPRAS_INTERVALO_MINUTOS`.
 
-Cada card traz fornecedor, número, datas, total, categoria, frete por conta, itens e um checklist com um item por produto — marcado quando a quantidade já vinculada a uma nota fiscal de entrada cobre a quantidade comprada. A lista do card segue a situação do pedido (`0` Em aberto, `3` Em andamento, `1` Atendido, `2` Cancelado), configurada em `TRELLO_LIST_ID_POR_SITUACAO_COMPRA`. As observações e as observações internas do pedido viram comentários separados no card, publicados de novo só quando o texto muda.
-
-Comandos:
+O card traz fornecedor, datas, total, categoria, frete por conta, itens e checklist (marcado quando a NF de entrada cobre a quantidade). Situações `0`–`3` mapeiam em `TRELLO_LIST_ID_POR_SITUACAO_COMPRA`. Observações e observações internas viram comentários distintos, republicados só quando o texto muda.
 
 ```bash
 python -m bling_trello_sync.cli listas-trello-compras
@@ -172,63 +173,65 @@ python -m bling_trello_sync.cli sincronizar-compras --dias 30
 python -m bling_trello_sync.cli sincronizar-compra 12345678
 ```
 
-## Financeiro (Power BI)
+## Financeiro (Power BI / Grafana)
 
-Parte independente do Trello: coleta o financeiro do Bling e grava em um banco que o Power BI lê. Com `FINANCEIRO_ATIVO=true` o próprio serviço atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`; também dá para rodar sob demanda:
+Independente do Trello. Com `FINANCEIRO_ATIVO=true` o serviço atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`:
 
 ```bash
 python -m bling_trello_sync.cli sincronizar-financeiro --dias 365
 python -m bling_trello_sync.cli sincronizar-financeiro --data-inicial 2025-01-01 --data-final 2026-12-31
 ```
 
-`FINANCEIRO_DATABASE_URL` aceita um PostgreSQL (`postgresql://usuario:senha@host:5432/banco`, recomendado, pois vários desktops leem o mesmo banco) ou o caminho de um arquivo SQLite. Cada cópia do programa grava com o nome em `FINANCEIRO_EMPRESA`, e as duas contas do Bling podem apontar para o mesmo banco: a coluna `empresa` permite ver uma, outra ou as duas somadas.
+`FINANCEIRO_DATABASE_URL` aceita Postgres (`postgresql://…`, recomendado) ou SQLite. Cada instância grava com `FINANCEIRO_EMPRESA`; as duas contas Bling podem apontar para o mesmo banco.
 
-O que é coletado: contas a receber e a pagar (emitidas, vencendo ou liquidadas no período), os borderos de cada conta liquidada (pagamento efetivo, com juros, desconto, acréscimo e tarifa), pedidos de venda e as dimensões categoria, conta financeira, forma de pagamento e contato. Para poupar requisições, o detalhe de uma conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` ignora essa checagem).
+Coletado: contas a receber/pagar, borderôs (com juros, desconto, acréscimo, tarifa e sequência de pagamento), pedidos de venda e dimensões (categoria, conta financeira, forma de pagamento, contato). Detalhe de conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` força).
 
-Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`. Visões prontas para os relatórios: `vw_lancamento`, `vw_dre` (competência), `vw_fluxo_caixa` (caixa realizado), `vw_contas_em_aberto` e `vw_faturamento`.
-
-O aplicativo do Bling de cada conta precisa dos escopos de **Finanças** (contas a pagar, contas a receber, categorias de receitas e despesas, contas financeiras e formas de pagamento); sem eles a API responde 403.
+Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`. Visões: `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`.
 
 ### Relatório Power BI
 
-O relatório fica em `powerbi/` no formato de projeto do Power BI (PBIP: modelo em TMDL e páginas em PBIR, arquivos de texto versionáveis). O relatório funciona como uma apresentação: abre numa **Capa** com os números principais e botões para cada assunto, seguida dos slides Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas. Cada slide tem um menu no topo, botões **Anterior**/**Próximo** e uma frase-resumo que muda conforme os filtros. Todas as páginas têm os filtros **Empresa** (uma, outra ou as duas), **Ano**, **Mês** e **Dia**, sincronizados entre as páginas, e o botão **Limpar filtros**. No Power BI Desktop, segure Ctrl ao clicar nos botões.
+Projeto em `powerbi/` (PBIP: TMDL + PBIR). Capa com números principais e slides Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar/Receber e Gastos e Receitas. Filtros **Empresa**, **Ano**, **Mês** e **Dia** sincronizados; botão **Limpar filtros**. No Desktop, Ctrl+clique nos botões.
 
-Para abrir em um desktop:
+1. Ative em *Arquivo > Opções > Recursos de visualização*: **PBIR** e **TMDL**; reinicie.
+2. Túnel SSH: `ssh -N -L 5432:localhost:5432 root@<ip-do-servidor>`.
+3. Abra `powerbi/Financeiro Bling.pbip`. Parâmetros `Servidor` (`localhost:5432`) e `Banco` (`financeiro`); credenciais do usuário `powerbi` em *Transformar dados*.
+4. Opcional: *Salvar como* `.pbix` para compartilhar.
 
-1. Instale o Power BI Desktop (Microsoft Store) e, em *Arquivo > Opções > Recursos de visualização*, ative **Formato de relatório avançado (PBIR)** e **Armazenar modelo semântico usando o formato TMDL**; reinicie.
-2. Abra um túnel SSH até o servidor e deixe a janela aberta: `ssh -N -L 5432:localhost:5432 root@<ip-do-servidor>`.
-3. Abra `powerbi/Financeiro Bling.pbip`. Os parâmetros `Servidor` (`localhost:5432`) e `Banco` (`financeiro`) já apontam para o túnel; em *Transformar dados > Configurações da fonte de dados* informe o usuário `powerbi` e a senha dele (tipo **Banco de dados**). Clique em **Atualizar**.
-4. Para ter um único arquivo, use *Arquivo > Salvar como* e escolha **.pbix**. Cada desktop pode abrir o mesmo `.pbix` (por exemplo numa pasta do OneDrive) e atualizar os dados pelo túnel.
+DRE usa competência; fluxo de caixa usa a data do pagamento/recebimento efetivo.
 
-O DRE soma pela data de competência e o fluxo de caixa pela data em que o valor foi efetivamente pago ou recebido.
+### Painéis Grafana
 
-### Painéis no navegador (Grafana)
+Alternativa no navegador, no próprio servidor, com as mesmas visões:
 
-Alternativa gratuita ao Power BI online: o Grafana roda no próprio servidor, lê as mesmas visões do banco e é aberto pelo navegador, com login e senha para cada pessoa. São sete painéis (Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar, Contas a Receber e Gastos e Receitas), com o filtro **Empresa** (uma, outra ou as duas), o seletor de período no canto superior direito e botões para ir de um painel a outro mantendo os filtros.
+1. Subdomínio DuckDNS (ex.: `refelist-bi`) apontando para o servidor.
+2. `bash grafana/instalar.sh refelist-bi.duckdns.org` — instala Grafana, conecta com `powerbi`, carrega painéis, HTTPS via Caddy; senha admin em `/root/senha-grafana.txt`.
+3. Cadastre usuários **Viewer** em *Administração > Usuários*.
 
-1. Crie um subdomínio no DuckDNS (por exemplo `refelist-bi`) apontando para o IP do servidor.
-2. No servidor, dentro da pasta do repositório: `bash grafana/instalar.sh refelist-bi.duckdns.org`. O script instala o Grafana, conecta no banco com o usuário `powerbi` (senha lida de `/root/senha-powerbi.txt`), carrega os painéis, publica o endereço com HTTPS pelo Caddy e grava a senha do usuário `admin` em `/root/senha-grafana.txt`. Pode ser rodado de novo para atualizar os painéis.
-3. Entre como `admin` e cadastre as outras pessoas em *Administração > Usuários e acesso > Usuários > Novo usuário*, com o papel **Viewer**, que só pode ver os painéis.
-
-Os painéis são gerados por `grafana/gerar_paineis.py`; depois de alterar o script, rode `python grafana/gerar_paineis.py`, faça commit dos JSON em `grafana/paineis/` e rode o `instalar.sh` de novo no servidor.
+Painéis gerados por `grafana/gerar_paineis.py`; após alterar o script, rode-o, faça commit dos JSON em `grafana/paineis/` e rode `instalar.sh` de novo.
 
 ## Backup
 
-O SQLite operacional (`DATABASE_PATH`) usa `PRAGMA journal_mode=WAL`. O Postgres financeiro é a fonte dos painéis.
+O SQLite operacional usa `PRAGMA journal_mode=WAL`. O Postgres financeiro alimenta os painéis.
 
 ```bash
-# no servidor — ajuste APP_JH / APP_JHS / FINANCEIRO_DB se preciso
 sudo bash deploy/backup.sh /var/backups/bling
 ```
 
-O script grava um dump SQLite de cada instância (`.backup`) e um `pg_dump -Fc` do banco `financeiro`. Guarde a pasta gerada fora do servidor (ou em outro disco). Para restaurar o Postgres: `pg_restore -d financeiro arquivo.dump`. Para o SQLite, pare o serviço e substitua o `.db` (e os arquivos `-wal`/`-shm` se existirem) pela cópia do backup.
+O script gera dump SQLite de cada instância e `pg_dump -Fc` do banco `financeiro`. Guarde fora do servidor. Restaurar Postgres: `pg_restore -d financeiro arquivo.dump`. No SQLite, pare o serviço e substitua o `.db` (e `-wal`/`-shm` se existirem).
 
-## Testes
+## Desenvolvimento e CI
 
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest --cov=bling_trello_sync --cov-fail-under=70
 ruff check .
 ```
 
-O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda `ruff check` e `pytest` em todo push e pull request.
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em push/PR com Python **3.10** e **3.12**: `ruff check` + `pytest` com cobertura mínima de 70%. Dependências de runtime vêm de `requirements.lock`.
+
+### Convenções de repositório
+
+- Commits pequenos e descritivos (inglês imperativo no título, corpo explicando o *porquê*).
+- Não versionar `.env`, credenciais, `.coverage` nem artefatos locais.
+- Preferir PR revisável por frente (segurança, sync, financeiro, BI) em vez de misturar tudo.
+- Após deploy: conferir `/healthz`, `/readyz`, um webhook de teste, um card Trello e um painel Grafana/Power BI.

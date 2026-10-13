@@ -9,16 +9,11 @@ from datetime import date, timedelta
 from typing import Any
 
 from .bling import BlingClient
+from .checklist import sincronizar_checklist
 from .config import Settings, normalizar
+from .formatacao import data_para_trello, moeda, quantidade
 from .storage import Storage
-from .sync import (
-    NOME_CHECKLIST,
-    ResultadoSync,
-    ResumoExecucao,
-    _data_para_trello,
-    _moeda,
-    _quantidade,
-)
+from .sync import ResultadoSync, ResumoExecucao
 from .trello import CardNaoEncontrado, TrelloClient
 
 logger = logging.getLogger(__name__)
@@ -64,7 +59,7 @@ def descricao_do_card(
         f"**Pedido de compra:** {pedido.get('numero', '-')} (id `{pedido.get('id', '-')}`)",
         f"**Fornecedor:** {fornecedor or '-'}",
         f"**Data:** {pedido.get('data', '-')} | **Prevista:** {pedido.get('dataPrevista', '-')}",
-        f"**Total:** {_moeda(pedido.get('total'))} (produtos {_moeda(pedido.get('totalProdutos'))})",
+        f"**Total:** {moeda(pedido.get('total'))} (produtos {moeda(pedido.get('totalProdutos'))})",
     ]
     situacao = nome_da_situacao(pedido)
     if situacao:
@@ -83,7 +78,7 @@ def descricao_do_card(
         for item in itens:
             linhas.append(
                 f"- {_codigo_do_item(item)} {_descricao_do_item(item)} — "
-                f"{_quantidade(item):g} x {_moeda(item.get('valor'))}".strip()
+                f"{quantidade(item):g} x {moeda(item.get('valor'))}".strip()
             )
 
     return "\n".join(linhas)
@@ -115,11 +110,11 @@ def itens_do_checklist(pedido: dict[str, Any]) -> list[tuple[str, bool]]:
     """Um item por produto do pedido, marcado quando já foi todo recebido em nota."""
     itens = []
     for item in pedido.get("itens") or []:
-        quantidade = _quantidade(item)
-        nome = f"{quantidade:g} x {_codigo_do_item(item)} {_descricao_do_item(item)}"
+        qtd = quantidade(item)
+        nome = f"{qtd:g} x {_codigo_do_item(item)} {_descricao_do_item(item)}"
         nome = nome.replace("  ", " ").strip()
         recebida = _quantidade_recebida(item)
-        itens.append((nome, quantidade > 0 and recebida + 1e-6 >= quantidade))
+        itens.append((nome, qtd > 0 and recebida + 1e-6 >= qtd))
     return itens
 
 
@@ -196,28 +191,6 @@ class SincronizadorCompras:
             if self.storage.registrar_comentario_compra(pedido_id, tipo, texto):
                 self.trello.comentar(card_id, f"**{rotulo}:** {texto}")
 
-    def _sincronizar_checklist(self, card_id: str, itens: list[tuple[str, bool]]) -> None:
-        if not itens:
-            return
-        checklist = next(
-            (c for c in self.trello.listar_checklists(card_id) if c.get("name") == NOME_CHECKLIST),
-            None,
-        )
-        if checklist is None:
-            checklist = self.trello.criar_checklist(card_id, NOME_CHECKLIST)
-
-        existentes = {item.get("name"): item for item in checklist.get("checkItems") or []}
-        nomes = {nome for nome, _ in itens}
-        for nome, recebido in itens:
-            atual = existentes.get(nome)
-            if atual is None:
-                self.trello.criar_item_checklist(checklist["id"], nome, recebido)
-            elif recebido and atual.get("state") != "complete":
-                self.trello.marcar_item_checklist(card_id, atual["id"])
-        for nome, item in existentes.items():
-            if nome not in nomes:
-                self.trello.remover_item_checklist(checklist["id"], item["id"])
-
     def sincronizar_pedido(self, pedido_id: int) -> ResultadoSync:
         pedido = self.bling.obter_pedido_compra(pedido_id)
         situacao = pedido.get("situacao") or {}
@@ -227,7 +200,7 @@ class SincronizadorCompras:
         fornecedor = self._nome_fornecedor(pedido)
         nome = titulo_do_card(pedido, fornecedor)
         descricao = descricao_do_card(pedido, fornecedor, self._nome_categoria(pedido))
-        due = _data_para_trello(pedido.get("dataPrevista"))
+        due = data_para_trello(pedido.get("dataPrevista"))
         itens = itens_do_checklist(pedido)
 
         existente = self.storage.obter_card_compra(pedido_id)
@@ -258,13 +231,13 @@ class SincronizadorCompras:
                 id_labels=self.settings.trello_label_ids,
             )
             self.storage.salvar_card_compra(pedido_id, card["id"], card["shortUrl"], valor)
-            self._sincronizar_checklist(card["id"], itens)
+            sincronizar_checklist(self.trello, card["id"], itens)
             self._comentar_observacoes(card["id"], pedido_id, pedido)
             logger.info("Card criado para a compra %s: %s", pedido_id, card["shortUrl"])
             return ResultadoSync(pedido_id, "card_criado", card["id"], card["shortUrl"])
 
         self.storage.salvar_card_compra(pedido_id, card["id"], card["shortUrl"], valor)
-        self._sincronizar_checklist(card["id"], itens)
+        sincronizar_checklist(self.trello, card["id"], itens)
         self._comentar_observacoes(card["id"], pedido_id, pedido)
         if existente.situacao_id != valor and valor is not None:
             self.trello.comentar(

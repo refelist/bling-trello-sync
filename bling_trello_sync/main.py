@@ -13,6 +13,7 @@ from .bling import BlingClient, validar_assinatura
 from .compras import SincronizadorCompras
 from .config import Settings, get_settings
 from .financeiro import ColetorFinanceiro
+from .metricas import metricas
 from .storage import Storage
 from .sync import Sincronizador
 from .trello import TrelloClient
@@ -21,8 +22,19 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+def _purgar_eventos_antigos(settings: Settings | None = None) -> None:
+    cfg = settings or get_settings()
+    try:
+        apagados = Storage(cfg.database_path).purgar_eventos(cfg.eventos_retencao_dias)
+        if apagados:
+            logger.info("Purge de eventos: %s registros antigos removidos", apagados)
+    except Exception:  # noqa: BLE001 - purge não pode derrubar o processo
+        logger.exception("Falha ao purgar eventos processados antigos")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _purgar_eventos_antigos()
     tarefas = [_iniciar_compras(), _iniciar_financeiro()]
     try:
         yield
@@ -50,6 +62,10 @@ def get_bling(
 
 
 def get_trello(settings: Settings = Depends(get_settings)) -> TrelloClient:
+    try:
+        settings.exigir_trello()
+    except ValueError as erro:
+        raise HTTPException(status_code=503, detail=str(erro)) from erro
     return TrelloClient(settings.trello_api_key, settings.trello_token)
 
 
@@ -107,8 +123,10 @@ def _iniciar_compras() -> "asyncio.Task[None] | None":
     settings = get_settings()
     if not settings.compras_ativo:
         return None
-    if not settings.trello_board_id_compras:
-        logger.warning("COMPRAS_ATIVO ligado sem TRELLO_BOARD_ID_COMPRAS; compras desativadas")
+    if not settings.trello_configurado or not settings.trello_board_id_compras:
+        logger.warning(
+            "COMPRAS_ATIVO ligado sem Trello completo ou TRELLO_BOARD_ID_COMPRAS; compras desativadas"
+        )
         return None
     logger.info(
         "Sincronização de pedidos de compra ativa (a cada %s min)",
@@ -129,13 +147,15 @@ async def _loop_compras(settings: Settings) -> None:
     )
     while True:
         try:
+            _purgar_eventos_antigos(settings)
             resumo = await asyncio.to_thread(compras.sincronizar_lote)
             logger.info(
-                "Compras: %s encontradas | %s criadas | %s atualizadas | %s erros",
+                "Compras: %s encontradas | %s criadas | %s atualizadas | %s erros | 429=%s",
                 resumo.pedidos_encontrados,
                 resumo.cards_criados,
                 resumo.cards_atualizados,
                 len(resumo.erros),
+                metricas.instantaneo()["bling_429"],
             )
         except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
             logger.exception("Falha ao sincronizar os pedidos de compra")
@@ -163,8 +183,14 @@ async def _loop_financeiro(settings: Settings) -> None:
     )
     while True:
         try:
+            _purgar_eventos_antigos(settings)
             resumo = await asyncio.to_thread(coletor.coletar)
-            logger.info("Financeiro: %s | %s erros", resumo, len(resumo.erros))
+            logger.info(
+                "Financeiro: %s | %s erros | 429=%s",
+                resumo,
+                len(resumo.erros),
+                metricas.instantaneo()["bling_429"],
+            )
         except Exception:  # noqa: BLE001 - o loop não pode morrer por uma falha pontual
             logger.exception("Falha ao coletar os dados financeiros")
         await asyncio.sleep(intervalo)
@@ -173,6 +199,12 @@ async def _loop_financeiro(settings: Settings) -> None:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, int]:
+    """Contadores do processo (limites de taxa e erros HTTP do Bling)."""
+    return metricas.instantaneo()
 
 
 @app.get("/readyz")

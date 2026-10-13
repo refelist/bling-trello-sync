@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     bling_api_base: str = "https://api.bling.com.br/Api/v3"
     bling_auth_base: str = "https://www.bling.com.br/Api/v3"
 
-    trello_api_key: str
-    trello_token: str
-    trello_board_id: str
-    trello_list_id_padrao: str
+    # Trello é opcional quando só a frente financeira está em uso.
+    trello_api_key: str = ""
+    trello_token: str = ""
+    trello_board_id: str = ""
+    trello_list_id_padrao: str = ""
     trello_list_id_por_situacao: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
     trello_label_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
@@ -54,12 +55,32 @@ class Settings(BaseSettings):
 
     database_path: str = "bling_trello_sync.db"
 
+    # Eventos de webhook concluídos mais antigos que isso são apagados periodicamente.
+    eventos_retencao_dias: int = 30
+
     # Token das rotas administrativas (Authorization: Bearer ou X-API-Key).
     # Obrigatório para /sincronizar, /trello/listas e POST /oauth/bling/ticket.
     # O webhook do Bling continua autenticado só pela assinatura HMAC.
     api_token: str = ""
 
     verificar_assinatura_webhook: bool = True
+
+    @property
+    def trello_configurado(self) -> bool:
+        return bool(
+            self.trello_api_key
+            and self.trello_token
+            and self.trello_board_id
+            and self.trello_list_id_padrao
+        )
+
+    def exigir_trello(self) -> None:
+        """Garante as credenciais do Trello antes de sincronizar vendas ou compras."""
+        if not self.trello_configurado:
+            raise ValueError(
+                "Configure TRELLO_API_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID e "
+                "TRELLO_LIST_ID_PADRAO no .env para usar a sincronização com o Trello."
+            )
 
     @field_validator(
         "trello_list_id_por_situacao",
