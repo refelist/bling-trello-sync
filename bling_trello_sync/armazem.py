@@ -142,8 +142,12 @@ CREATE TABLE IF NOT EXISTS coleta_meta (
 # Situação de pedido de venda "Cancelado" no mapa JH/JHS (NOMES_SITUACOES / Trello).
 SITUACAO_PEDIDO_CANCELADO = 12
 
+# Contrato estável Power BI ↔ Grafana. Ao mudar semântica, crie *_v2, aponte os
+# aliases curtos para a nova versão e registre o changelog em docs/METRICAS.md.
+CONTRATO_METRICAS_VERSAO = 1
+
 _VISOES_TEMPLATE = """
-CREATE VIEW vw_lancamento AS
+CREATE VIEW vw_lancamento_v1 AS
 SELECT r.empresa, 'receita' AS natureza, r.id, situacao,
        CASE situacao WHEN 1 THEN 'Em aberto' WHEN 2 THEN 'Liquidado' WHEN 3 THEN 'Parcial'
                      WHEN 4 THEN 'Devolvido' WHEN 5 THEN 'Cancelado'
@@ -168,21 +172,25 @@ SELECT p.empresa, 'despesa' AS natureza, p.id, situacao,
   FROM conta_pagar p
   LEFT JOIN contato ct ON ct.empresa = p.empresa AND ct.id = p.contato_id;
 
-CREATE VIEW vw_dre AS
+CREATE VIEW vw_lancamento AS SELECT * FROM vw_lancamento_v1;
+
+CREATE VIEW vw_dre_v1 AS
 SELECT l.empresa,
        l.competencia,
        l.natureza,
        COALESCE(c.descricao, 'Sem categoria') AS categoria,
        COALESCE(NULLIF(pai.descricao, ''), COALESCE(c.descricao, 'Sem categoria')) AS categoria_grupo,
        CASE WHEN l.natureza = 'receita' THEN l.valor ELSE -l.valor END AS valor
-  FROM vw_lancamento l
+  FROM vw_lancamento_v1 l
   LEFT JOIN categoria c ON c.empresa = l.empresa AND c.id = l.categoria_id
   LEFT JOIN categoria pai
     ON pai.empresa = c.empresa
    AND pai.id = NULLIF(c.id_categoria_pai, 0)
  WHERE l.situacao <> 5;
 
-CREATE VIEW vw_fluxo_caixa AS
+CREATE VIEW vw_dre AS SELECT * FROM vw_dre_v1;
+
+CREATE VIEW vw_fluxo_caixa_v1 AS
 SELECT m.empresa,
        m.data,
        m.tipo,
@@ -205,24 +213,32 @@ SELECT m.empresa,
   LEFT JOIN categoria c ON c.empresa = m.empresa AND c.id = m.categoria_id
   LEFT JOIN conta_financeira f ON f.empresa = m.empresa AND f.id = m.portador_id;
 
-CREATE VIEW vw_contas_em_aberto AS
+CREATE VIEW vw_fluxo_caixa AS SELECT * FROM vw_fluxo_caixa_v1;
+
+CREATE VIEW vw_contas_em_aberto_v1 AS
 SELECT l.empresa,
        l.natureza,
        l.vencimento,
        COALESCE(c.descricao, 'Sem categoria') AS categoria,
        l.contato_nome,
        l.saldo AS valor_em_aberto
-  FROM vw_lancamento l
+  FROM vw_lancamento_v1 l
   LEFT JOIN categoria c ON c.empresa = l.empresa AND c.id = l.categoria_id
  WHERE l.situacao IN (1, 3, 7) AND COALESCE(l.saldo, 0) > 0;
 
-CREATE VIEW vw_faturamento AS
+CREATE VIEW vw_contas_em_aberto AS SELECT * FROM vw_contas_em_aberto_v1;
+
+CREATE VIEW vw_faturamento_v1 AS
 SELECT empresa, data, numero, contato_nome, loja_id, situacao_id, total
   FROM pedido_venda
  WHERE situacao_id IS NULL OR situacao_id <> {cancelado};
 
-CREATE VIEW vw_coleta_meta AS
+CREATE VIEW vw_faturamento AS SELECT * FROM vw_faturamento_v1;
+
+CREATE VIEW vw_coleta_meta_v1 AS
 SELECT empresa, coletado_em, ok, erros, bling_429, resumo FROM coleta_meta;
+
+CREATE VIEW vw_coleta_meta AS SELECT * FROM vw_coleta_meta_v1;
 """
 
 VISOES = _VISOES_TEMPLATE.format(cancelado=SITUACAO_PEDIDO_CANCELADO)
@@ -255,7 +271,7 @@ CHAVES = {
 }
 
 # Suba este número quando mudar tabelas/visões para forçar migração única (sem DROP a cada boot).
-ESQUEMA_VERSAO = 5
+ESQUEMA_VERSAO = 6
 
 def versao_da_conta(situacao: Any, valor: Any, vencimento: Any) -> tuple[Any, ...]:
     """Identidade usada para saber se a conta mudou desde a última coleta."""

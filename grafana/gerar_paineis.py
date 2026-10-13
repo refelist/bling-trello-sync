@@ -464,21 +464,70 @@ def visao_geral() -> Painel:
     p.add(12, 7, 12, 9, barras(
         "Entradas x saídas de caixa", ENTRADAS_SAIDAS, "Mês", VERDE, False, cores=CORES_CAIXA,
     ))
-    p.add(0, 16, 24, 5, tabela("Resumo por empresa", f"""
+
+    # Conciliação: mesmo intervalo de calendário em três eixos diferentes (não devem bater).
+    p.add(0, 16, 5, 4, numero(
+        "Faturamento (pedidos)",
+        FATURAMENTO,
+        AZUL,
+        descricao="Pedidos no período (data do pedido). Contrato vw_faturamento_v1.",
+    ))
+    p.add(5, 16, 5, 4, numero(
+        "Receita DRE",
+        RECEITA,
+        VERDE,
+        descricao="Títulos a receber por competência. Contrato vw_dre_v1.",
+    ))
+    p.add(10, 16, 5, 4, numero(
+        "Entradas de caixa",
+        _soma("SUM(valor)", "vw_fluxo_caixa", f"tipo = 'receber' AND {EMPRESA}", "data"),
+        ROXO,
+        descricao="Borderôs de recebimento (líquido). Contrato vw_fluxo_caixa_v1.",
+    ))
+    p.add(15, 16, 4, 4, numero(
+        "Δ Fat − Receita",
+        f"""SELECT COALESCE((
+              SELECT SUM(total) FROM vw_faturamento WHERE {EMPRESA} AND {_janela('data')}
+            ), 0) - COALESCE((
+              SELECT SUM(valor) FROM vw_dre
+               WHERE natureza = 'receita' AND {EMPRESA} AND {_janela('competencia')}
+            ), 0)""",
+        LARANJA,
+        descricao="Gap pedidos vs competência. Esperado ≠ 0 (prazos, NF, cancelamentos).",
+    ))
+    p.add(19, 16, 5, 4, numero(
+        "Δ Receita − Entradas",
+        f"""SELECT COALESCE((
+              SELECT SUM(valor) FROM vw_dre
+               WHERE natureza = 'receita' AND {EMPRESA} AND {_janela('competencia')}
+            ), 0) - COALESCE((
+              SELECT SUM(valor) FROM vw_fluxo_caixa
+               WHERE tipo = 'receber' AND {EMPRESA} AND {_janela('data')}
+            ), 0)""",
+        LARANJA,
+        descricao="Gap competência vs caixa. Esperado ≠ 0 (a receber / tarifas).",
+    ))
+
+    p.add(0, 20, 24, 5, tabela("Resumo por empresa", f"""
         WITH f AS (SELECT empresa, SUM(total) fat FROM vw_faturamento
                      WHERE {EMPRESA} AND $__timeFilter(data) GROUP BY 1),
              d AS (SELECT empresa, SUM(valor) FILTER (WHERE natureza = 'receita') rec,
                           -SUM(valor) FILTER (WHERE natureza = 'despesa') desp, SUM(valor) res
                      FROM vw_dre WHERE {EMPRESA} AND $__timeFilter(competencia) GROUP BY 1),
+             c AS (SELECT empresa, SUM(valor) FILTER (WHERE tipo = 'receber') entradas
+                     FROM vw_fluxo_caixa WHERE {EMPRESA} AND $__timeFilter(data) GROUP BY 1),
              a AS (SELECT empresa, SUM(valor_em_aberto) FILTER (WHERE natureza = 'receita') arec,
                           SUM(valor_em_aberto) FILTER (WHERE natureza = 'despesa') apag
                      FROM vw_contas_em_aberto WHERE {EMPRESA} GROUP BY 1),
-             e AS (SELECT empresa FROM f UNION SELECT empresa FROM d UNION SELECT empresa FROM a)
-        SELECT e.empresa AS "Empresa", f.fat AS "Faturamento", d.rec AS "Receita", d.desp AS "Despesas",
+             e AS (SELECT empresa FROM f UNION SELECT empresa FROM d
+                   UNION SELECT empresa FROM c UNION SELECT empresa FROM a)
+        SELECT e.empresa AS "Empresa", f.fat AS "Faturamento", d.rec AS "Receita",
+               c.entradas AS "Entradas caixa", d.desp AS "Despesas",
                d.res AS "Resultado", a.arec AS "A receber em aberto", a.apag AS "A pagar em aberto"
-          FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa) LEFT JOIN a USING (empresa)
+          FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa)
+          LEFT JOIN c USING (empresa) LEFT JOIN a USING (empresa)
          ORDER BY 1"""))
-    p.add(0, 21, 24, 9, barras("Maiores gastos por grupo de categoria", f"""
+    p.add(0, 25, 24, 9, barras("Maiores gastos por grupo de categoria", f"""
         SELECT categoria_grupo AS "Grupo", -SUM(valor) AS "Despesas" FROM vw_dre
          WHERE natureza = 'despesa' AND {EMPRESA} AND $__timeFilter(competencia)
          GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", "Grupo", VERMELHO,

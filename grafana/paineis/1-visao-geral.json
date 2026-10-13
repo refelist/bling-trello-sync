@@ -916,6 +916,291 @@
       }
     },
     {
+      "type": "stat",
+      "title": "Faturamento (pedidos)",
+      "description": "Pedidos no período (data do pedido). Contrato vw_faturamento_v1.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(SUM(total), 0) FROM vw_faturamento WHERE empresa IN ($empresa) AND data >= to_timestamp($__from / 1000.0) AND data < to_timestamp($__to / 1000.0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#1F4E79"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Receita DRE",
+      "description": "Títulos a receber por competência. Contrato vw_dre_v1.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2E7D32"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 5,
+        "y": 16,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Entradas de caixa",
+      "description": "Borderôs de recebimento (líquido). Contrato vw_fluxo_caixa_v1.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_fluxo_caixa WHERE tipo = 'receber' AND empresa IN ($empresa) AND data >= to_timestamp($__from / 1000.0) AND data < to_timestamp($__to / 1000.0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#6A1B9A"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 14,
+      "gridPos": {
+        "x": 10,
+        "y": 16,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Δ Fat − Receita",
+      "description": "Gap pedidos vs competência. Esperado ≠ 0 (prazos, NF, cancelamentos).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(( SELECT SUM(total) FROM vw_faturamento WHERE empresa IN ($empresa) AND data >= to_timestamp($__from / 1000.0) AND data < to_timestamp($__to / 1000.0) ), 0) - COALESCE(( SELECT SUM(valor) FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0) ), 0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#EF6C00"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 15,
+      "gridPos": {
+        "x": 15,
+        "y": 16,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Δ Receita − Entradas",
+      "description": "Gap competência vs caixa. Esperado ≠ 0 (a receber / tarifas).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(( SELECT SUM(valor) FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0) ), 0) - COALESCE(( SELECT SUM(valor) FROM vw_fluxo_caixa WHERE tipo = 'receber' AND empresa IN ($empresa) AND data >= to_timestamp($__from / 1000.0) AND data < to_timestamp($__to / 1000.0) ), 0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#EF6C00"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 16,
+      "gridPos": {
+        "x": 19,
+        "y": 16,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
       "type": "table",
       "title": "Resumo por empresa",
       "description": "",
@@ -929,7 +1214,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "WITH f AS (SELECT empresa, SUM(total) fat FROM vw_faturamento WHERE empresa IN ($empresa) AND $__timeFilter(data) GROUP BY 1), d AS (SELECT empresa, SUM(valor) FILTER (WHERE natureza = 'receita') rec, -SUM(valor) FILTER (WHERE natureza = 'despesa') desp, SUM(valor) res FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1), a AS (SELECT empresa, SUM(valor_em_aberto) FILTER (WHERE natureza = 'receita') arec, SUM(valor_em_aberto) FILTER (WHERE natureza = 'despesa') apag FROM vw_contas_em_aberto WHERE empresa IN ($empresa) GROUP BY 1), e AS (SELECT empresa FROM f UNION SELECT empresa FROM d UNION SELECT empresa FROM a) SELECT e.empresa AS \"Empresa\", f.fat AS \"Faturamento\", d.rec AS \"Receita\", d.desp AS \"Despesas\", d.res AS \"Resultado\", a.arec AS \"A receber em aberto\", a.apag AS \"A pagar em aberto\" FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa) LEFT JOIN a USING (empresa) ORDER BY 1"
+          "rawSql": "WITH f AS (SELECT empresa, SUM(total) fat FROM vw_faturamento WHERE empresa IN ($empresa) AND $__timeFilter(data) GROUP BY 1), d AS (SELECT empresa, SUM(valor) FILTER (WHERE natureza = 'receita') rec, -SUM(valor) FILTER (WHERE natureza = 'despesa') desp, SUM(valor) res FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1), c AS (SELECT empresa, SUM(valor) FILTER (WHERE tipo = 'receber') entradas FROM vw_fluxo_caixa WHERE empresa IN ($empresa) AND $__timeFilter(data) GROUP BY 1), a AS (SELECT empresa, SUM(valor_em_aberto) FILTER (WHERE natureza = 'receita') arec, SUM(valor_em_aberto) FILTER (WHERE natureza = 'despesa') apag FROM vw_contas_em_aberto WHERE empresa IN ($empresa) GROUP BY 1), e AS (SELECT empresa FROM f UNION SELECT empresa FROM d UNION SELECT empresa FROM c UNION SELECT empresa FROM a) SELECT e.empresa AS \"Empresa\", f.fat AS \"Faturamento\", d.rec AS \"Receita\", c.entradas AS \"Entradas caixa\", d.desp AS \"Despesas\", d.res AS \"Resultado\", a.arec AS \"A receber em aberto\", a.apag AS \"A pagar em aberto\" FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa) LEFT JOIN c USING (empresa) LEFT JOIN a USING (empresa) ORDER BY 1"
         }
       ],
       "fieldConfig": {
@@ -950,10 +1235,10 @@
           "show": false
         }
       },
-      "id": 12,
+      "id": 17,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 20,
         "w": 24,
         "h": 5
       },
@@ -1013,10 +1298,10 @@
           "sort": "none"
         }
       },
-      "id": 13,
+      "id": 18,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 25,
         "w": 24,
         "h": 9
       },

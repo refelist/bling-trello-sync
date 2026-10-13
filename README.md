@@ -195,7 +195,7 @@ Coletado: contas a receber/pagar, borderôs (com juros, desconto, acréscimo, ta
 
 Para reduzir HTTP 429, a coleta incremental varre **emissão** no período inteiro e **vencimento/pagamento** só nos últimos `FINANCEIRO_FILTROS_SECUNDARIOS_DIAS` (padrão 45). `FINANCEIRO_FILTROS_COMPLETOS=true` ou `--recarregar-tudo` restaura os três eixos no período todo. O contador de 429 da corrida fica em `coleta_meta.bling_429` (painel Operação + alerta Grafana).
 
-Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`, `coleta_meta`. Visões: `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`, `vw_coleta_meta`.
+Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`, `coleta_meta`. Visões contrato: `vw_*_v1` (pinadas) e aliases curtos `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`, `vw_coleta_meta`. Semântica e changelog: [`docs/METRICAS.md`](docs/METRICAS.md).
 
 **Semântica dos números (importante):**
 
@@ -207,15 +207,15 @@ Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `cat
 | `vw_contas_em_aberto` | Saldo em aberto hoje (independente do filtro de período nos painéis). |
 | `vw_coleta_meta` | Última sincronização Bling→Postgres por empresa (status e erros). |
 
-Índices em `(empresa, competência/vencimento/data)` aceleram os painéis. Após mudar visões, o `ESQUEMA_VERSAO` no `armazem` força a recriação uma vez.
+Índices em `(empresa, competência/vencimento/data)` aceleram os painéis. Após mudar visões, o `ESQUEMA_VERSAO` no `armazem` força a recriação uma vez. Golden queries (margem, saldo, em aberto, conciliação) rodam no CI em `tests/test_metricas_contrato.py`.
 
 ### Relatório Power BI
 
-Projeto em `powerbi/` (PBIP: TMDL + PBIR). Capa com números principais e slides Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar/Receber e Gastos e Receitas. Filtros **Empresa**, **Ano**, **Mês** e **Dia** sincronizados; botão **Limpar filtros**. No Desktop, Ctrl+clique nos botões.
+Projeto em `powerbi/` (PBIP: TMDL + PBIR). Capa com números principais e slides Visão Geral, DRE, Fluxo de Caixa, Faturamento, Contas a Pagar/Receber e Gastos e Receitas. Filtros **Empresa**, **Ano**, **Mês** e **Dia** sincronizados; botão **Limpar filtros**. No Desktop, Ctrl+clique nos botões. Mesmas visões do Grafana (`docs/METRICAS.md`).
 
 1. Ative em *Arquivo > Opções > Recursos de visualização*: **PBIR** e **TMDL**; reinicie.
-2. Túnel SSH: `ssh -N -L 5432:localhost:5432 root@<ip-do-servidor>`.
-3. Abra `powerbi/Financeiro Bling.pbip`. Parâmetros `Servidor` (`localhost:5432`) e `Banco` (`financeiro`); credenciais do usuário `powerbi` em *Transformar dados*.
+2. **Produção (recomendado):** instale o [On-premises Data Gateway](https://learn.microsoft.com/power-bi/connect-data/service-gateway-onprem) na rede do Postgres (ou VPN site-a-site) e publique o relatório no serviço Power BI apontando para o host interno/`localhost` do gateway — evita túnel SSH frágil.
+3. **Dev local:** túnel SSH `ssh -N -L 5432:localhost:5432 root@<ip-do-servidor>` e abra `powerbi/Financeiro Bling.pbip` com parâmetros `Servidor` (`localhost:5432`) e `Banco` (`financeiro`); credenciais do usuário `powerbi` em *Transformar dados*.
 4. Opcional: *Salvar como* `.pbix` para compartilhar.
 
 DRE usa competência; fluxo de caixa usa a data do pagamento/recebimento efetivo.
@@ -230,7 +230,15 @@ Alternativa no navegador, no próprio servidor, com as mesmas visões:
 
 Painéis gerados por `grafana/gerar_paineis.py`; após alterar o script, rode-o, faça commit dos JSON em `grafana/paineis/` e rode `instalar.sh` de novo.
 
-A Visão Geral usa timezone `America/Sao_Paulo`, refresh a cada 15 min, 6 cartões hero com Δ vs período anterior, indicador de horas desde a última coleta (amarelo ≥3h / vermelho ≥6h) e alertas em `grafana/alertas/financeiro.yaml` (coleta > 6h; HTTP 429 na última corrida).
+A Visão Geral usa timezone `America/Sao_Paulo`, refresh a cada 15 min, 6 cartões hero com Δ vs período anterior, bloco de **conciliação** (faturamento × receita DRE × entradas de caixa), indicador de horas desde a última coleta (amarelo ≥3h / vermelho ≥6h) e alertas em `grafana/alertas/financeiro.yaml` (coleta > 6h; HTTP 429 na última corrida).
+
+Auditoria estrutural dos 7 dashboards (sem plugin Assistant):
+
+```bash
+export GRAFANA_URL=https://jh-bi.duckdns.org
+export GRAFANA_TOKEN=<service-account-token>
+python grafana/auditar_paineis.py
+```
 
 ## Backup
 
