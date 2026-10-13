@@ -163,7 +163,9 @@ def test_rotas_administrativas_exigem_token(cliente):
     assert client.get("/trello/listas").status_code == 401
     assert client.post("/sincronizar/1").status_code == 401
     assert client.post("/sincronizar-compra/1").status_code == 401
+    assert client.post("/oauth/bling/ticket").status_code == 401
     assert client.get("/oauth/bling/autorizar").status_code == 401
+    assert client.get("/trello/listas", params={"token": "token-teste"}).status_code == 401
 
 
 def test_sincronizar_manual_aceita_bearer(cliente):
@@ -179,6 +181,39 @@ def test_sincronizar_manual_aceita_bearer(cliente):
 def test_healthz_continua_aberto(cliente):
     client, _, _ = cliente
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_readyz_exige_token_bling(cliente, settings):
+    import time
+
+    from bling_trello_sync.storage import TokenBling
+
+    client, _, _ = cliente
+    assert client.get("/readyz").status_code == 503
+    Storage(settings.database_path).salvar_token(TokenBling("a", "r", time.time() + 3600))
+    assert client.get("/readyz").json() == {"status": "ready"}
+
+
+def test_oauth_ticket_abre_autorizar(cliente, settings):
+    client, _, _ = cliente
+    ticket_resp = client.post(
+        "/oauth/bling/ticket",
+        headers={"Authorization": f"Bearer {settings.api_token}"},
+    )
+    assert ticket_resp.status_code == 200
+    ticket = ticket_resp.json()["ticket"]
+
+    class BlingFake:
+        def url_de_autorizacao(self, state: str) -> str:
+            return f"https://bling.example/authorize?state={state}"
+
+    from bling_trello_sync.main import get_bling
+
+    app.dependency_overrides[get_bling] = lambda: BlingFake()
+    resposta = client.get("/oauth/bling/autorizar", params={"ticket": ticket}, follow_redirects=False)
+    assert resposta.status_code in (302, 307)
+    # Ticket é de uso único.
+    assert client.get("/oauth/bling/autorizar", params={"ticket": ticket}).status_code == 401
 
 
 def test_oauth_callback_rejeita_state_invalido(cliente):

@@ -125,21 +125,36 @@ O serviço FastAPI em `bling_trello_sync/main.py` expõe:
 | Rota | Uso | Auth |
 |---|---|---|
 | `POST /webhooks/bling` | endereço a cadastrar no webhook do Bling | assinatura HMAC do Bling |
-| `GET /healthz` | verificação de saúde | aberta |
-| `GET /oauth/bling/autorizar` | inicia autorização do Bling no navegador | `API_TOKEN` |
+| `GET /healthz` | verificação de saúde (liveness) | aberta |
+| `GET /readyz` | pronto para tráfego (SQLite + token Bling) | aberta |
+| `POST /oauth/bling/ticket` | emite ticket one-time para autorizar no navegador | `API_TOKEN` |
+| `GET /oauth/bling/autorizar` | inicia autorização do Bling no navegador | `?ticket=` (uso único, 5 min) |
 | `GET /oauth/bling/callback` | retorno do Bling após autorizar | `state` OAuth emitido por `/autorizar` |
 | `GET /trello/listas` | listas do board, para montar o mapa de situações | `API_TOKEN` |
 | `POST /sincronizar/{pedido_id}` | sincroniza um pedido de venda sob demanda | `API_TOKEN` |
 | `POST /sincronizar-compra/{pedido_id}` | sincroniza um pedido de compra sob demanda | `API_TOKEN` |
 
-Rodar:
+Rodar (produção com systemd):
 
 ```bash
-pip install -r requirements.txt
-uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
+# ajuste WorkingDirectory/EnvironmentFile em deploy/*.service e depois:
+sudo cp deploy/bling-trello-sync.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bling-trello-sync
+# segunda conta:
+sudo cp deploy/bling-trello-sync-jhs.service /etc/systemd/system/
+sudo systemctl enable --now bling-trello-sync-jhs
 ```
 
-O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling) e `API_TOKEN` deve ser um segredo longo; as rotas administrativas aceitam `Authorization: Bearer …`, o cabeçalho `X-API-Key` ou `?token=` (útil para abrir `/oauth/bling/autorizar` no navegador).
+Ou manualmente: `uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000` (o reverse proxy/Caddy faz o HTTPS).
+
+No `.env`, `BLING_REDIRECT_URI` deve ser `https://seu-dominio/oauth/bling/callback` e `API_TOKEN` um segredo longo. As rotas admin aceitam só `Authorization: Bearer …` ou `X-API-Key` (não use o token na query string). Para autorizar no navegador:
+
+```bash
+curl -s -X POST https://seu-dominio/oauth/bling/ticket \
+  -H "Authorization: Bearer $API_TOKEN"
+# abra o campo "autorizar" (URL com ?ticket=…) no navegador
+```
 
 Cada evento do webhook é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. A sincronização roda em segundo plano para responder ao Bling dentro do tempo limite. O `eventId` é reservado de forma atômica no início (`processing`) e só vira `done` depois do card atualizado; se a sync falhar ou o pedido for ignorado (filtro de loja), o claim é liberado para o Bling poder reenviar.
 
@@ -196,6 +211,17 @@ Alternativa gratuita ao Power BI online: o Grafana roda no próprio servidor, l�
 3. Entre como `admin` e cadastre as outras pessoas em *Administração > Usuários e acesso > Usuários > Novo usuário*, com o papel **Viewer**, que só pode ver os painéis.
 
 Os painéis são gerados por `grafana/gerar_paineis.py`; depois de alterar o script, rode `python grafana/gerar_paineis.py`, faça commit dos JSON em `grafana/paineis/` e rode o `instalar.sh` de novo no servidor.
+
+## Backup
+
+O SQLite operacional (`DATABASE_PATH`) usa `PRAGMA journal_mode=WAL`. O Postgres financeiro é a fonte dos painéis.
+
+```bash
+# no servidor — ajuste APP_JH / APP_JHS / FINANCEIRO_DB se preciso
+sudo bash deploy/backup.sh /var/backups/bling
+```
+
+O script grava um dump SQLite de cada instância (`.backup`) e um `pg_dump -Fc` do banco `financeiro`. Guarde a pasta gerada fora do servidor (ou em outro disco). Para restaurar o Postgres: `pg_restore -d financeiro arquivo.dump`. Para o SQLite, pare o serviço e substitua o `.db` (e os arquivos `-wal`/`-shm` se existirem) pela cópia do backup.
 
 ## Testes
 

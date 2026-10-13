@@ -240,6 +240,7 @@ class Armazem:
             conn = psycopg.connect(self.url)
         else:
             conn = sqlite3.connect(self.url, timeout=30)
+            conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
             conn.commit()

@@ -75,9 +75,8 @@ def exigir_api_token(
     settings: Settings = Depends(get_settings),
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    token: Annotated[str | None, Query()] = None,
 ) -> None:
-    """Exige API_TOKEN nas rotas administrativas. O webhook do Bling não usa esta checagem."""
+    """Exige API_TOKEN (Bearer ou X-API-Key). Não aceita query string — evita vazamento em logs."""
     esperado = settings.api_token
     if not esperado:
         raise HTTPException(
@@ -87,8 +86,6 @@ def exigir_api_token(
     candidato = x_api_key
     if candidato is None and authorization and authorization.lower().startswith("bearer "):
         candidato = authorization[7:].strip()
-    if candidato is None:
-        candidato = token
     if not candidato or not secrets.compare_digest(candidato, esperado):
         raise HTTPException(status_code=401, detail="Token de API inválido ou ausente")
 
@@ -178,12 +175,37 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/oauth/bling/autorizar", dependencies=[Depends(exigir_api_token)])
+@app.get("/readyz")
+def readyz(storage: Storage = Depends(get_storage)) -> dict[str, str]:
+    """Pronto para tráfego: SQLite abre e há token Bling armazenado."""
+    try:
+        token = storage.obter_token()
+    except Exception as erro:  # noqa: BLE001 - readiness não pode derrubar o worker
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {erro}") from erro
+    if token is None:
+        raise HTTPException(status_code=503, detail="token Bling ausente; rode a autorização")
+    return {"status": "ready"}
+
+
+@app.post("/oauth/bling/ticket", dependencies=[Depends(exigir_api_token)])
+def emitir_ticket_oauth(storage: Storage = Depends(get_storage)) -> dict[str, str]:
+    """Emite ticket de uso único (5 min) para abrir /oauth/bling/autorizar no navegador."""
+    ticket = storage.emitir_oauth_ticket()
+    return {
+        "ticket": ticket,
+        "autorizar": f"/oauth/bling/autorizar?ticket={ticket}",
+    }
+
+
+@app.get("/oauth/bling/autorizar")
 def autorizar(
+    ticket: Annotated[str | None, Query()] = None,
     bling: BlingClient = Depends(get_bling),
     storage: Storage = Depends(get_storage),
 ) -> RedirectResponse:
-    """Inicia o fluxo OAuth2 do Bling (abra no navegador e autorize o aplicativo)."""
+    """Inicia o OAuth2 do Bling. Exige ticket one-time (POST /oauth/bling/ticket), não o API_TOKEN."""
+    if not ticket or not storage.consumir_oauth_ticket(ticket):
+        raise HTTPException(status_code=401, detail="Ticket inválido, expirado ou ausente")
     state = secrets.token_urlsafe(16)
     storage.salvar_oauth_state(state)
     return RedirectResponse(bling.url_de_autorizacao(state=state))

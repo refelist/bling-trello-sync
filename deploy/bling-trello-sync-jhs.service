@@ -1,0 +1,17 @@
+[Unit]
+Description=Bling → Trello sync — JHS Shopping LTDA
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bling-trello-sync-jhs
+EnvironmentFile=/opt/bling-trello-sync-jhs/.env
+ExecStart=/opt/bling-trello-sync-jhs/.venv/bin/uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

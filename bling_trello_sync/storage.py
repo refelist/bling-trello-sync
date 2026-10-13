@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -54,10 +55,16 @@ CREATE TABLE IF NOT EXISTS estado (
     chave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS oauth_ticket (
+    ticket TEXT PRIMARY KEY,
+    expira_em REAL NOT NULL
+);
 """
 
 CHAVE_ULTIMA_SINCRONIZACAO = "ultima_sincronizacao"
 CHAVE_OAUTH_STATE = "oauth_state"
+OAUTH_TICKET_TTL_SEGUNDOS = 300
 
 
 @dataclass
@@ -90,6 +97,7 @@ class Storage:
     def _conexao(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.caminho, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
             conn.commit()
@@ -252,6 +260,32 @@ class Storage:
             if linha is None or linha["valor"] != state:
                 return False
             conn.execute("DELETE FROM estado WHERE chave = ?", (CHAVE_OAUTH_STATE,))
+        return True
+
+    def emitir_oauth_ticket(self, ttl_segundos: int = OAUTH_TICKET_TTL_SEGUNDOS) -> str:
+        """Emite um ticket de uso único para abrir /oauth/bling/autorizar no navegador."""
+        ticket = secrets.token_urlsafe(24)
+        with self._conexao() as conn:
+            conn.execute(
+                "DELETE FROM oauth_ticket WHERE expira_em < ?", (time.time(),)
+            )
+            conn.execute(
+                "INSERT INTO oauth_ticket (ticket, expira_em) VALUES (?, ?)",
+                (ticket, time.time() + ttl_segundos),
+            )
+        return ticket
+
+    def consumir_oauth_ticket(self, ticket: str) -> bool:
+        """Confere, apaga e devolve True se o ticket existia e ainda era válido."""
+        agora = time.time()
+        with self._conexao() as conn:
+            conn.execute("DELETE FROM oauth_ticket WHERE expira_em < ?", (agora,))
+            linha = conn.execute(
+                "SELECT expira_em FROM oauth_ticket WHERE ticket = ?", (ticket,)
+            ).fetchone()
+            if linha is None or linha["expira_em"] < agora:
+                return False
+            conn.execute("DELETE FROM oauth_ticket WHERE ticket = ?", (ticket,))
         return True
 
     def obter_estado(self, chave: str) -> str | None:
