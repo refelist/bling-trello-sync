@@ -49,10 +49,17 @@ class Settings(BaseSettings):
     financeiro_dias: int = 365
     financeiro_dias_futuros: int = 365
     financeiro_intervalo_minutos: int = 60
-    # Eixos secundários (vencimento/pagamento) só nos últimos N dias; emissão cobre o período todo.
-    # Com --recarregar-tudo (ou FINANCEIRO_FILTROS_COMPLETOS=true) usa todos os eixos no período inteiro.
+    # Atraso antes da 1ª coleta (espaça JH vs JHS no mesmo host).
+    financeiro_atraso_inicial_segundos: int = 0
+    # Incremental: emissão e V/R só nos últimos N dias (histórico completo com --recarregar-tudo).
+    financeiro_filtros_emissao_dias: int = 45
     financeiro_filtros_secundarios_dias: int = 45
+    # Pedidos de venda: janela curta na rotina (a lista completa gerava milhares de GETs/hora).
+    financeiro_dias_pedidos: int = 14
     financeiro_filtros_completos: bool = False
+
+    # Pausa mínima entre GETs ao Bling (ms). Reduz rajadas → menos HTTP 429.
+    bling_intervalo_minimo_ms: int = 250
 
     lojas_ignoradas: Annotated[list[str], NoDecode] = Field(default_factory=list)
     lojas_permitidas: Annotated[list[str], NoDecode] = Field(default_factory=list)

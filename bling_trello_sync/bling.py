@@ -20,6 +20,24 @@ class BlingAuthError(RuntimeError):
     pass
 
 
+class _LimitadorTaxa:
+    """Espaça as requisições para não estourar o limite do Bling (HTTP 429)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._proxima = 0.0
+
+    def aguardar(self, intervalo_ms: int) -> None:
+        minimo = max(0, int(intervalo_ms)) / 1000.0
+        with self._lock:
+            agora = time.monotonic()
+            espera = self._proxima - agora
+            if espera > 0:
+                time.sleep(espera)
+                agora = time.monotonic()
+            self._proxima = agora + minimo
+
+
 def validar_assinatura(corpo: bytes, assinatura: str | None, client_secret: str) -> bool:
     """Valida o header X-Bling-Signature-256 (HMAC-SHA256 do payload com o client secret)."""
     if not assinatura:
@@ -35,6 +53,7 @@ class BlingClient:
         self.storage = storage
         self._client = client or httpx.Client(timeout=30)
         self._token_lock = threading.Lock()
+        self._limite = _LimitadorTaxa()
 
     def url_de_autorizacao(self, state: str) -> str:
         params = {
@@ -112,22 +131,28 @@ class BlingClient:
                 pass
         return ESPERA_INICIAL_SEGUNDOS * (2**tentativa)
 
+    def _get_http(
+        self, url: str, *, params: dict[str, Any] | None, headers: dict[str, str]
+    ) -> httpx.Response:
+        self._limite.aguardar(self.settings.bling_intervalo_minimo_ms)
+        return self._client.get(url, params=params, headers=headers)
+
     def _get(self, caminho: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self.settings.bling_api_base}{caminho}"
         headers = {"Authorization": f"Bearer {self._access_token()}", "Accept": "application/json"}
-        resposta = self._client.get(url, params=params, headers=headers)
+        resposta = self._get_http(url, params=params, headers=headers)
         if resposta.status_code == 401:
             token = self.storage.obter_token()
             if token is not None:
                 novo = self.renovar_token(token.refresh_token)
                 headers["Authorization"] = f"Bearer {novo.access_token}"
-                resposta = self._client.get(url, params=params, headers=headers)
+                resposta = self._get_http(url, params=params, headers=headers)
         for tentativa in range(TENTATIVAS_LIMITE_TAXA):
             if resposta.status_code != 429:
                 break
             metricas.registrar_429()
             time.sleep(self._espera_do_limite(resposta, tentativa))
-            resposta = self._client.get(url, params=params, headers=headers)
+            resposta = self._get_http(url, params=params, headers=headers)
         try:
             resposta.raise_for_status()
         except httpx.HTTPStatusError:

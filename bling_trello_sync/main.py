@@ -138,6 +138,9 @@ def _iniciar_compras() -> "asyncio.Task[None] | None":
 async def _loop_compras(settings: Settings) -> None:
     """O Bling não tem webhook de pedido de compra, então o quadro é atualizado por consulta."""
     intervalo = max(1, settings.compras_intervalo_minutos) * 60
+    # Começa depois do financeiro para não disputar o mesmo teto de taxa no boot.
+    atraso = max(0, settings.financeiro_atraso_inicial_segundos) + 90
+    await asyncio.sleep(atraso)
     storage = Storage(settings.database_path)
     compras = SincronizadorCompras(
         settings,
@@ -167,8 +170,9 @@ def _iniciar_financeiro() -> "asyncio.Task[None] | None":
     if not settings.financeiro_ativo:
         return None
     logger.info(
-        "Coleta financeira ativa (a cada %s min) gravando em %s",
+        "Coleta financeira ativa (a cada %s min, atraso inicial %ss) gravando em %s",
         settings.financeiro_intervalo_minutos,
+        settings.financeiro_atraso_inicial_segundos,
         settings.financeiro_database_url.split("@")[-1],
     )
     return asyncio.create_task(_loop_financeiro(settings))
@@ -177,6 +181,9 @@ def _iniciar_financeiro() -> "asyncio.Task[None] | None":
 async def _loop_financeiro(settings: Settings) -> None:
     """Atualiza o banco financeiro lido pelo Power BI; o Bling não avisa mudanças por webhook."""
     intervalo = max(1, settings.financeiro_intervalo_minutos) * 60
+    atraso = max(0, settings.financeiro_atraso_inicial_segundos)
+    if atraso:
+        await asyncio.sleep(atraso)
     storage = Storage(settings.database_path)
     coletor = ColetorFinanceiro(
         settings, BlingClient(settings, storage), Armazem(settings.financeiro_database_url)

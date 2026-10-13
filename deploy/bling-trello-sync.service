@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
+# Paths abaixo são exemplo — no servidor JH costuma ser /root/bling-trello-sync.
 WorkingDirectory=/opt/bling-trello-sync
 EnvironmentFile=/opt/bling-trello-sync/.env
 ExecStart=/opt/bling-trello-sync/.venv/bin/uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000
@@ -14,7 +15,8 @@ RestartSec=5
 TimeoutStopSec=30
 
 # Segunda conta (JHS): copie este arquivo para bling-trello-sync-jhs.service,
-# aponte WorkingDirectory/EnvironmentFile/ExecStart para a outra pasta e outra porta.
+# aponte WorkingDirectory/EnvironmentFile/ExecStart para a outra pasta e outra porta
+# (ex.: /root/bling-trello-sync-2, porta 8001).
 
 [Install]
 WantedBy=multi-user.target

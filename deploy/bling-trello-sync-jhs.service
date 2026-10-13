@@ -3,6 +3,7 @@ Description=Bling → Trello sync — JHS Shopping LTDA
 After=network-online.target postgresql.service
 Wants=network-online.target
 
+# Paths abaixo são exemplo — no servidor JHS costuma ser /root/bling-trello-sync-2.
 [Service]
 Type=simple
 User=root

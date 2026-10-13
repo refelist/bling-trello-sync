@@ -268,26 +268,40 @@ class ColetorFinanceiro:
             ),
         )
 
-    def _inicio_filtros_secundarios(self, inicio: str, *, completo: bool) -> str:
-        """Início da varredura de vencimento/pagamento (emissão sempre cobre o período inteiro)."""
+    def _inicio_janela_recente(self, inicio: str, dias: int, *, completo: bool) -> str:
+        """Recorta o início ao máximo entre `inicio` e (hoje − dias), salvo coleta completa."""
         if completo or self.settings.financeiro_filtros_completos:
             return inicio
-        dias = max(0, self.settings.financeiro_filtros_secundarios_dias)
-        recente = (date.today() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        recente = (date.today() - timedelta(days=max(0, dias))).strftime("%Y-%m-%d")
         return max(inicio, recente)
+
+    def _inicio_filtros_secundarios(self, inicio: str, *, completo: bool) -> str:
+        """Início da varredura de vencimento/pagamento."""
+        return self._inicio_janela_recente(
+            inicio, self.settings.financeiro_filtros_secundarios_dias, completo=completo
+        )
+
+    def _inicio_filtros_emissao(self, inicio: str, *, completo: bool) -> str:
+        """Início da varredura por data de emissão (incremental = só janela recente)."""
+        return self._inicio_janela_recente(
+            inicio, self.settings.financeiro_filtros_emissao_dias, completo=completo
+        )
 
     def _contas_receber_do_periodo(
         self, inicio: str, fim: str, *, completo: bool = False
     ) -> dict[int, dict[str, Any]]:
         """Contas a receber do período, sem repetir.
 
-        Incremental: emissão no período todo; vencimento/recebimento só na janela recente
-        (ou no período todo se `completo` / FINANCEIRO_FILTROS_COMPLETOS).
+        Incremental: emissão + vencimento/recebimento só na janela recente
+        (período todo se `completo` / FINANCEIRO_FILTROS_COMPLETOS).
         """
         encontradas: dict[int, dict[str, Any]] = {}
-        consultas: list[tuple[str, str, str]] = [
-            (ini, fin, "E") for ini, fin in janelas_do_periodo(inicio, fim)
-        ]
+        emi_inicio = self._inicio_filtros_emissao(inicio, completo=completo)
+        consultas: list[tuple[str, str, str]] = []
+        if emi_inicio <= fim:
+            consultas.extend(
+                (ini, fin, "E") for ini, fin in janelas_do_periodo(emi_inicio, fim)
+            )
         sec_inicio = self._inicio_filtros_secundarios(inicio, completo=completo)
         if sec_inicio <= fim:
             for ini, fin in janelas_do_periodo(sec_inicio, fim):
@@ -307,12 +321,15 @@ class ColetorFinanceiro:
     def _contas_pagar_do_periodo(
         self, inicio: str, fim: str, *, completo: bool = False
     ) -> dict[int, dict[str, Any]]:
-        """Contas a pagar: emissão no período todo; vencimento/pagamento na janela recente."""
+        """Contas a pagar: emissão + vencimento/pagamento na janela recente (ou período todo)."""
         encontradas: dict[int, dict[str, Any]] = {}
-        filtros: list[dict[str, str]] = [
-            {"data_emissao_inicial": ini, "data_emissao_final": fin}
-            for ini, fin in janelas_do_periodo(inicio, fim)
-        ]
+        emi_inicio = self._inicio_filtros_emissao(inicio, completo=completo)
+        filtros: list[dict[str, str]] = []
+        if emi_inicio <= fim:
+            filtros.extend(
+                {"data_emissao_inicial": ini, "data_emissao_final": fin}
+                for ini, fin in janelas_do_periodo(emi_inicio, fim)
+            )
         sec_inicio = self._inicio_filtros_secundarios(inicio, completo=completo)
         if sec_inicio <= fim:
             for ini, fin in janelas_do_periodo(sec_inicio, fim):
@@ -402,10 +419,20 @@ class ColetorFinanceiro:
                 contatos.append(contato)
         resumo.somar("contato", self.armazem.gravar("contato", contatos))
 
-    def coletar_pedidos_venda(self, inicio: str, fim: str, resumo: ResumoFinanceiro) -> None:
+    def coletar_pedidos_venda(
+        self, inicio: str, fim: str, resumo: ResumoFinanceiro, *, completo: bool = False
+    ) -> None:
         agora = datetime.now().isoformat(timespec="seconds")
+        if completo or self.settings.financeiro_filtros_completos:
+            ped_inicio = inicio
+        else:
+            ped_inicio = self._inicio_janela_recente(
+                inicio, self.settings.financeiro_dias_pedidos, completo=False
+            )
+        if ped_inicio > fim:
+            return
         pedidos: list[dict[str, Any]] = []
-        for ini, fin in janelas_do_periodo(inicio, fim):
+        for ini, fin in janelas_do_periodo(ped_inicio, fim):
             pedidos.extend(
                 self._paginar(
                     lambda p, i=ini, f=fin: self.bling.listar_pedidos_vendas(
@@ -457,7 +484,9 @@ class ColetorFinanceiro:
                 recarregar_tudo,
             )
             self.completar_contatos(resumo)
-            self.coletar_pedidos_venda(data_inicial, data_final, resumo)
+            self.coletar_pedidos_venda(
+                data_inicial, data_final, resumo, completo=completo
+            )
         except Exception:
             bling_429 = int(metricas.instantaneo()["bling_429"]) - _429_antes
             metricas.registrar_coleta_financeira(

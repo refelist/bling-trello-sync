@@ -145,15 +145,19 @@ O serviço FastAPI em `bling_trello_sync.main` expõe:
 | `POST /sincronizar/{pedido_id}` | sync manual de venda | `API_TOKEN` |
 | `POST /sincronizar-compra/{pedido_id}` | sync manual de compra | `API_TOKEN` |
 
+Os arquivos em `deploy/*.service` são **modelos**: edite `WorkingDirectory`, `EnvironmentFile` e `ExecStart` para a pasta real da instalação (no servidor JH/JHS hoje: `/root/bling-trello-sync` e `/root/bling-trello-sync-2`, ports 8000/8001). Os templates usam `/opt/...` só como exemplo — essa pasta **não** precisa existir.
+
 ```bash
-# ajuste WorkingDirectory/EnvironmentFile em deploy/*.service e depois:
+# depois de ajustar os paths no unit:
 sudo cp deploy/bling-trello-sync.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now bling-trello-sync
-# segunda conta:
+# segunda conta (outro diretório / porta):
 sudo cp deploy/bling-trello-sync-jhs.service /etc/systemd/system/
 sudo systemctl enable --now bling-trello-sync-jhs
 ```
+
+Em produção JH os units ativos podem ter outros nomes (`bling-trello`, `bling-trello-2`); o que importa é cada conta Bling ter um uvicorn com o `.env` dela.
 
 Ou manualmente: `uvicorn bling_trello_sync.main:app --host 127.0.0.1 --port 8000` (HTTPS via reverse proxy/Caddy).
 
@@ -175,14 +179,13 @@ python -m bling_trello_sync.cli sincronizar-compra 12345678
 
 ## Financeiro (Power BI / Grafana)
 
-Independente do Trello. Com `FINANCEIRO_ATIVO=true` o serviço FastAPI atualiza o banco a cada `FINANCEIRO_INTERVALO_MINUTOS`. Para só a frente financeira (sem webhook/Trello), use os units oneshot:
+Independente do Trello. Com `FINANCEIRO_ATIVO=true`, **cada instância FastAPI** já agenda a coleta a cada `FINANCEIRO_INTERVALO_MINUTOS` (loop em `main.py`). No layout JH/JHS isso cobre as duas empresas sem unit extra.
 
-```bash
-sudo cp deploy/bling-financeiro.service deploy/bling-financeiro.timer /etc/systemd/system/
-sudo cp deploy/bling-financeiro-jhs.service deploy/bling-financeiro-jhs.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now bling-financeiro.timer bling-financeiro-jhs.timer
-```
+**Não instale** `deploy/bling-financeiro*.timer` se os apps uvicorn já estão com `FINANCEIRO_ATIVO=true` — a coleta se repetiria (mais carga no Bling / risco de 429) e os templates apontam para `/opt/...`, que no servidor atual não é onde o código vive.
+
+Os timers oneshot em `deploy/bling-financeiro*.{service,timer}` só fazem sentido em máquina **sem** o FastAPI (ou com `FINANCEIRO_ATIVO=false`), só para alimentar o Postgres. Nesse caso, ajuste antes os paths no unit para a pasta real e o `.env` da conta.
+
+Coleta manual / backfill:
 
 ```bash
 python -m bling_trello_sync.cli sincronizar-financeiro --dias 365
@@ -193,7 +196,7 @@ python -m bling_trello_sync.cli sincronizar-financeiro --data-inicial 2025-01-01
 
 Coletado: contas a receber/pagar, borderôs (com juros, desconto, acréscimo, tarifa e sequência de pagamento), pedidos de venda e dimensões (categoria, conta financeira, forma de pagamento, contato). Detalhe de conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` força).
 
-Para reduzir HTTP 429, a coleta incremental varre **emissão** no período inteiro e **vencimento/pagamento** só nos últimos `FINANCEIRO_FILTROS_SECUNDARIOS_DIAS` (padrão 45). `FINANCEIRO_FILTROS_COMPLETOS=true` ou `--recarregar-tudo` restaura os três eixos no período todo. O contador de 429 da corrida fica em `coleta_meta.bling_429` (painel Operação + alerta Grafana).
+Para reduzir HTTP 429, a rotina incremental só varre janelas recentes: emissão (`FINANCEIRO_FILTROS_EMISSAO_DIAS`, 45), vencimento/pagamento (`FINANCEIRO_FILTROS_SECUNDARIOS_DIAS`, 45) e pedidos de venda (`FINANCEIRO_DIAS_PEDIDOS`, 14). Sem isso, cada hora relistava milhares de pedidos (ex.: ~8k GETs). Há também pausa mínima entre GETs (`BLING_INTERVALO_MINIMO_MS`) e `FINANCEIRO_ATRASO_INICIAL_SEGUNDOS` para não sincronizar JH e JHS no mesmo instante. `FINANCEIRO_FILTROS_COMPLETOS=true` ou `--recarregar-tudo` restaura o período completo (use sob demanda / semanal). O contador de 429 da corrida fica em `coleta_meta.bling_429`.
 
 Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`, `coleta_meta`. Visões contrato: `vw_*_v1` (pinadas) e aliases curtos `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`, `vw_coleta_meta`. Semântica e changelog: [`docs/METRICAS.md`](docs/METRICAS.md).
 

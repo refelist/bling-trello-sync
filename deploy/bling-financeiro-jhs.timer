@@ -1,5 +1,5 @@
 [Unit]
-Description=Agenda da coleta financeira Bling → Postgres (JHS)
+Description=Agenda da coleta financeira Bling → Postgres (JHS) — só se FastAPI não coletar
 
 [Timer]
 OnBootSec=10min

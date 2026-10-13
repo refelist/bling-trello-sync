@@ -3,6 +3,8 @@ Description=Coleta financeira Bling → Postgres (JHS) — oneshot sem Trello
 After=network-online.target postgresql.service
 Wants=network-online.target
 
+# Só use se NÃO houver uvicorn com FINANCEIRO_ATIVO=true (evita coleta duplicada).
+# Ajuste paths para a pasta real (ex.: /root/bling-trello-sync-2).
 [Service]
 Type=oneshot
 User=root
