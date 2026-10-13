@@ -249,3 +249,4 @@ O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em push/P
 - Não versionar `.env`, credenciais, `.coverage` nem artefatos locais.
 - Preferir PR revisável por frente (segurança, sync, financeiro, BI) em vez de misturar tudo.
 - Após deploy: conferir `/healthz`, `/readyz`, um webhook de teste, um card Trello e um painel Grafana/Power BI.
+- Check-up geral do servidor (apps, Grafana, banco, memória; não mostra senhas): `bash deploy/checkup.sh [dominio-do-grafana]`.
