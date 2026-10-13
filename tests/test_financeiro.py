@@ -206,6 +206,56 @@ def test_coleta_grava_tabelas_e_visoes(settings, armazem):
     assert armazem.ler("SELECT COUNT(*) FROM vw_coleta_meta")[0][0] == 1
 
 
+def test_vw_dre_expoe_categoria_grupo(armazem):
+    armazem.gravar(
+        "categoria",
+        [
+            {
+                "empresa": "E",
+                "id": 1,
+                "descricao": "Despesas operacionais",
+                "tipo": 1,
+                "id_categoria_pai": 0,
+            },
+            {
+                "empresa": "E",
+                "id": 2,
+                "descricao": "Aluguel",
+                "tipo": 1,
+                "id_categoria_pai": 1,
+            },
+        ],
+    )
+    armazem.gravar(
+        "conta_pagar",
+        [
+            {
+                "empresa": "E",
+                "id": 10,
+                "situacao": 1,
+                "data_emissao": "2026-01-01",
+                "competencia": "2026-01-01",
+                "vencimento": "2026-01-10",
+                "valor": 50.0,
+                "saldo": 50.0,
+                "valor_pago": 0.0,
+                "numero_documento": None,
+                "historico": None,
+                "categoria_id": 2,
+                "portador_id": None,
+                "forma_pagamento_id": None,
+                "contato_id": None,
+                "contato_nome": None,
+                "atualizado_em": "agora",
+            }
+        ],
+    )
+    linhas = armazem.ler(
+        "SELECT categoria, categoria_grupo, valor FROM vw_dre WHERE empresa = 'E'"
+    )
+    assert linhas == [("Aluguel", "Despesas operacionais", -50.0)]
+
+
 def test_vw_faturamento_exclui_pedidos_cancelados(armazem):
     armazem.gravar(
         "pedido_venda",

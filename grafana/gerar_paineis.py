@@ -3,6 +3,8 @@
 Rode `python grafana/gerar_paineis.py` depois de mudar este arquivo e faça commit dos JSON.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -16,11 +18,12 @@ LARANJA = "#EF6C00"
 ROXO = "#6A1B9A"
 
 EMPRESA = "empresa IN ($empresa)"
+TZ = "America/Sao_Paulo"
 
 
-def consulta(sql: str, formato: str = "table") -> list[dict]:
+def consulta(sql: str, formato: str = "table", ref: str = "A") -> list[dict]:
     return [{
-        "refId": "A",
+        "refId": ref,
         "datasource": FONTE,
         "editorMode": "code",
         "rawQuery": True,
@@ -30,10 +33,18 @@ def consulta(sql: str, formato: str = "table") -> list[dict]:
 
 
 class Painel:
-    def __init__(self, uid: str, titulo: str, descricao: str) -> None:
+    def __init__(
+        self,
+        uid: str,
+        titulo: str,
+        descricao: str,
+        *,
+        refresh: str = "",
+    ) -> None:
         self.uid = uid
         self.titulo = titulo
         self.descricao = descricao
+        self.refresh = refresh
         self.paineis: list[dict] = []
 
     def add(self, x: int, y: int, w: int, h: int, painel: dict) -> None:
@@ -48,12 +59,12 @@ class Painel:
             "title": self.titulo,
             "description": self.descricao,
             "tags": ["financeiro"],
-            "timezone": "utc",
+            "timezone": TZ,
             "editable": False,
             "graphTooltip": 1,
             "schemaVersion": 41,
             "version": 1,
-            "refresh": "",
+            "refresh": self.refresh,
             "time": {"from": "now-12M/M", "to": "now"},
             "timepicker": {},
             "links": [{
@@ -85,12 +96,65 @@ class Painel:
         }
 
 
-def numero(titulo: str, sql: str, cor: str, unidade: str = "currencyBRL",
-           descricao: str = "") -> dict:
+def numero(
+    titulo: str,
+    sql: str,
+    cor: str,
+    unidade: str = "currencyBRL",
+    descricao: str = "",
+    *,
+    limiares: list[dict] | None = None,
+) -> dict:
+    defaults: dict = {
+        "unit": unidade,
+        "decimals": 0 if unidade == "none" else (1 if unidade == "percentunit" else 2),
+        "color": {"mode": "fixed", "fixedColor": cor},
+        "noValue": "0",
+    }
+    if limiares:
+        defaults["thresholds"] = {"mode": "absolute", "steps": limiares}
+        defaults["color"] = {"mode": "thresholds"}
     return {
         "type": "stat",
         "title": titulo,
         "description": descricao,
+        "targets": consulta(sql),
+        "fieldConfig": {"defaults": defaults, "overrides": []},
+        "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "wideLayout": True,
+            "showPercentChange": False,
+        },
+    }
+
+
+def numero_delta(
+    titulo: str,
+    sql_atual: str,
+    sql_anterior: str,
+    cor: str,
+    unidade: str = "currencyBRL",
+    descricao: str = "",
+) -> dict:
+    """Stat do valor atual + % vs o período imediatamente anterior (mesma duração)."""
+    sql = f"""
+        WITH atual AS ({sql_atual}),
+             anterior AS ({sql_anterior})
+        SELECT (SELECT * FROM atual) AS "Valor",
+               CASE WHEN (SELECT * FROM anterior) = 0 THEN NULL
+                    ELSE ((SELECT * FROM atual) - (SELECT * FROM anterior))
+                         / ABS((SELECT * FROM anterior))
+               END AS "vs período anterior"
+    """
+    return {
+        "type": "stat",
+        "title": titulo,
+        "description": descricao + " Compara com o período imediatamente anterior de mesma duração.",
         "targets": consulta(sql),
         "fieldConfig": {
             "defaults": {
@@ -99,13 +163,28 @@ def numero(titulo: str, sql: str, cor: str, unidade: str = "currencyBRL",
                 "color": {"mode": "fixed", "fixedColor": cor},
                 "noValue": "0",
             },
-            "overrides": [],
+            "overrides": [{
+                "matcher": {"id": "byName", "options": "vs período anterior"},
+                "properties": [
+                    {"id": "unit", "value": "percentunit"},
+                    {"id": "decimals", "value": 1},
+                    {"id": "custom.displayMode", "value": "color-background"},
+                    {"id": "thresholds", "value": {
+                        "mode": "absolute",
+                        "steps": [
+                            {"color": VERMELHO, "value": None},
+                            {"color": VERDE, "value": 0},
+                        ],
+                    }},
+                    {"id": "color", "value": {"mode": "thresholds"}},
+                ],
+            }],
         },
         "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^Valor$/", "values": False},
             "colorMode": "background",
             "graphMode": "none",
-            "textMode": "value",
+            "textMode": "value_and_name",
             "justifyMode": "center",
             "orientation": "auto",
             "wideLayout": True,
@@ -121,8 +200,13 @@ def cores_por_nome(cores: dict[str, str]) -> list[dict]:
     } for nome, cor in cores.items()]
 
 
-def colunas_mensais(titulo: str, sql: str, cores: dict[str, str] | None = None,
-                    empilhar: bool = False, unidade: str = "currencyBRL") -> dict:
+def colunas_mensais(
+    titulo: str,
+    sql: str,
+    cores: dict[str, str] | None = None,
+    empilhar: bool = False,
+    unidade: str = "currencyBRL",
+) -> dict:
     """Barras por mês; a consulta devolve time, metric e value (uma série por metric)."""
     return {
         "type": "timeseries",
@@ -178,8 +262,15 @@ def linha(titulo: str, sql: str, cor: str) -> dict:
     }
 
 
-def barras(titulo: str, sql: str, eixo: str, cor: str, horizontal: bool = True,
-           descricao: str = "", cores: dict[str, str] | None = None) -> dict:
+def barras(
+    titulo: str,
+    sql: str,
+    eixo: str,
+    cor: str,
+    horizontal: bool = True,
+    descricao: str = "",
+    cores: dict[str, str] | None = None,
+) -> dict:
     """Barras com rótulo de texto; a ordem das barras é a ordem das linhas da consulta."""
     return {
         "type": "barchart",
@@ -209,8 +300,13 @@ def barras(titulo: str, sql: str, eixo: str, cor: str, horizontal: bool = True,
     }
 
 
-def tabela(titulo: str, sql: str, contagens: tuple[str, ...] = (), percentuais: tuple[str, ...] = (),
-           descricao: str = "") -> dict:
+def tabela(
+    titulo: str,
+    sql: str,
+    contagens: tuple[str, ...] = (),
+    percentuais: tuple[str, ...] = (),
+    descricao: str = "",
+) -> dict:
     overrides = [{
         "matcher": {"id": "byName", "options": nome},
         "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 0}],
@@ -231,68 +327,132 @@ def tabela(titulo: str, sql: str, contagens: tuple[str, ...] = (), percentuais: 
     }
 
 
-# Somas reaproveitadas pelos cartões
-FATURAMENTO = f"SELECT COALESCE(SUM(total), 0) FROM vw_faturamento WHERE {EMPRESA} AND $__timeFilter(data)"
-RECEITA = (f"SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE natureza = 'receita' AND {EMPRESA} "
-           "AND $__timeFilter(competencia)")
-DESPESAS = (f"SELECT COALESCE(-SUM(valor), 0) FROM vw_dre WHERE natureza = 'despesa' AND {EMPRESA} "
-            "AND $__timeFilter(competencia)")
-RESULTADO = f"SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE {EMPRESA} AND $__timeFilter(competencia)"
-MARGEM = (f"SELECT SUM(valor) / NULLIF(SUM(valor) FILTER (WHERE natureza = 'receita'), 0) FROM vw_dre "
-          f"WHERE {EMPRESA} AND $__timeFilter(competencia)")
-SALDO_CAIXA = f"SELECT COALESCE(SUM(valor), 0) FROM vw_fluxo_caixa WHERE {EMPRESA} AND $__timeFilter(data)"
+def _janela(coluna: str, deslocar: bool = False) -> str:
+    """Filtro de período Grafana; com deslocar=True usa a janela imediatamente anterior.
+
+    Usa `$__from`/`$__to` (ms) — estáveis no datasource Postgres do Grafana.
+    """
+    t0 = "to_timestamp($__from / 1000.0)"
+    t1 = "to_timestamp($__to / 1000.0)"
+    if not deslocar:
+        return f"{coluna} >= {t0} AND {coluna} < {t1}"
+    return f"{coluna} >= {t0} - ({t1} - {t0}) AND {coluna} < {t0}"
+
+
+def _soma(expr: str, de: str, onde: str, coluna_tempo: str, anterior: bool = False) -> str:
+    return (
+        f"SELECT COALESCE({expr}, 0) FROM {de} "
+        f"WHERE {onde} AND {_janela(coluna_tempo, deslocar=anterior)}"
+    )
+
+
+FATURAMENTO = _soma("SUM(total)", "vw_faturamento", EMPRESA, "data")
+FATURAMENTO_ANT = _soma("SUM(total)", "vw_faturamento", EMPRESA, "data", anterior=True)
+RECEITA = _soma("SUM(valor)", "vw_dre", f"natureza = 'receita' AND {EMPRESA}", "competencia")
+RECEITA_ANT = _soma("SUM(valor)", "vw_dre", f"natureza = 'receita' AND {EMPRESA}", "competencia", True)
+DESPESAS = _soma("-SUM(valor)", "vw_dre", f"natureza = 'despesa' AND {EMPRESA}", "competencia")
+RESULTADO = _soma("SUM(valor)", "vw_dre", EMPRESA, "competencia")
+RESULTADO_ANT = _soma("SUM(valor)", "vw_dre", EMPRESA, "competencia", True)
+MARGEM = (
+    f"SELECT SUM(valor) / NULLIF(SUM(valor) FILTER (WHERE natureza = 'receita'), 0) "
+    f"FROM vw_dre WHERE {EMPRESA} AND {_janela('competencia')}"
+)
+SALDO_CAIXA = _soma("SUM(valor)", "vw_fluxo_caixa", EMPRESA, "data")
+SALDO_CAIXA_ANT = _soma("SUM(valor)", "vw_fluxo_caixa", EMPRESA, "data", True)
 
 
 def em_aberto(natureza: str, filtro: str = "") -> str:
-    return (f"SELECT COALESCE(SUM(valor_em_aberto), 0) FROM vw_contas_em_aberto "
-            f"WHERE natureza = '{natureza}' AND {EMPRESA} {filtro}")
+    return (
+        f"SELECT COALESCE(SUM(valor_em_aberto), 0) FROM vw_contas_em_aberto "
+        f"WHERE natureza = '{natureza}' AND {EMPRESA} {filtro}"
+    )
 
 
 ABERTO_DESCRICAO = "Tudo o que está em aberto hoje, independente do período escolhido."
-FAT_MENSAL = (f"SELECT date_trunc('month', data)::timestamp AS time, empresa AS metric, SUM(total) AS value "
-              f"FROM vw_faturamento WHERE {EMPRESA} AND $__timeFilter(data) GROUP BY 1, 2 ORDER BY 1")
-ENTRADAS_SAIDAS = (f"""
+FAT_MENSAL = (
+    f"SELECT date_trunc('month', data)::timestamp AS time, empresa AS metric, SUM(total) AS value "
+    f"FROM vw_faturamento WHERE {EMPRESA} AND $__timeFilter(data) GROUP BY 1, 2 ORDER BY 1"
+)
+ENTRADAS_SAIDAS = f"""
     SELECT to_char(date_trunc('month', data), 'MM/YY') AS "Mês",
            SUM(valor) FILTER (WHERE tipo = 'receber') AS "Entradas",
            -SUM(valor) FILTER (WHERE tipo = 'pagar') AS "Saídas"
       FROM vw_fluxo_caixa WHERE {EMPRESA} AND $__timeFilter(data)
-     GROUP BY date_trunc('month', data) ORDER BY date_trunc('month', data)""")
+     GROUP BY date_trunc('month', data) ORDER BY date_trunc('month', data)"""
 CORES_CAIXA = {"Entradas": VERDE, "Saídas": VERMELHO}
 
-
 SEMANTICA = (
-    "Semântica: Faturamento = pedidos de venda (exclui cancelados). "
-    "Receita/Despesas/DRE = competência dos títulos (não caixa). "
-    "Saldo do caixa = borderôs (valor pago ± juros/acréscimo − desconto − tarifa)."
+    "Semântica: Faturamento = pedidos (exclui cancelados). "
+    "Resultado/DRE = competência dos títulos. "
+    "Caixa = borderôs líquidos. Δ = vs período anterior de mesma duração."
 )
+
+HORAS_COLETA = f"""
+    SELECT COALESCE(
+             EXTRACT(EPOCH FROM (NOW() - MAX(coletado_em::timestamptz))) / 3600.0,
+             999
+           )
+      FROM vw_coleta_meta WHERE {EMPRESA}
+"""
 
 
 def visao_geral() -> Painel:
     p = Painel(
         "fin-visao-geral",
         "1. Visão Geral",
-        "Resumo do período: faturamento, resultado, caixa e contas em aberto. " + SEMANTICA,
+        "Resumo executivo do período. " + SEMANTICA,
+        refresh="15m",
     )
-    cartoes = [
-        ("Faturamento", FATURAMENTO, AZUL, "currencyBRL",
-         "Soma dos pedidos de venda no período (exclui situação cancelado)."),
-        ("Receita", RECEITA, VERDE, "currencyBRL",
-         "Títulos a receber por competência (não é caixa)."),
-        ("Despesas", DESPESAS, VERMELHO, "currencyBRL",
-         "Títulos a pagar por competência (não é caixa)."),
-        ("Resultado", RESULTADO, AZUL, "currencyBRL", "Receita − despesas (competência)."),
-        ("Margem", MARGEM, AZUL, "percentunit", "Resultado / receita (competência)."),
-        ("Saldo do caixa", SALDO_CAIXA, ROXO, "currencyBRL",
-         "Entradas − saídas no período (borderôs, valor líquido)."),
-        ("A receber em aberto", em_aberto("receita"), VERDE, "currencyBRL", ABERTO_DESCRICAO),
-        ("A pagar em aberto", em_aberto("despesa"), LARANJA, "currencyBRL", ABERTO_DESCRICAO),
+    # Hero: 6 cartões (não 8) — receita/despesa ficam no DRE.
+    herois = [
+        ("Faturamento", FATURAMENTO, FATURAMENTO_ANT, AZUL, "currencyBRL",
+         "Pedidos de venda no período (exclui cancelados)."),
+        ("Resultado", RESULTADO, RESULTADO_ANT, AZUL, "currencyBRL",
+         "Receita − despesas (competência)."),
+        ("Margem", MARGEM, MARGEM, AZUL, "percentunit",
+         "Resultado / receita (competência). Sem Δ (razão)."),
+        ("Saldo do caixa", SALDO_CAIXA, SALDO_CAIXA_ANT, ROXO, "currencyBRL",
+         "Entradas − saídas (borderôs, valor líquido)."),
+        ("A receber em aberto", em_aberto("receita"), em_aberto("receita"), VERDE, "currencyBRL",
+         ABERTO_DESCRICAO + " Sem Δ (saldo de hoje)."),
+        ("A pagar em aberto", em_aberto("despesa"), em_aberto("despesa"), LARANJA, "currencyBRL",
+         ABERTO_DESCRICAO + " Sem Δ (saldo de hoje)."),
     ]
-    for i, (titulo, sql, cor, unidade, descricao) in enumerate(cartoes):
-        p.add((i % 4) * 6, (i // 4) * 3, 6, 3, numero(titulo, sql, cor, unidade, descricao))
-    p.add(0, 6, 12, 9, colunas_mensais("Faturamento mensal por empresa", FAT_MENSAL, empilhar=True))
-    p.add(12, 6, 12, 9, barras("Entradas x saídas de caixa", ENTRADAS_SAIDAS, "Mês", VERDE, False,
-                                cores=CORES_CAIXA))
-    p.add(0, 15, 24, 5, tabela("Resumo por empresa", f"""
+    for i, (titulo, atual, anterior, cor, unidade, desc) in enumerate(herois):
+        # Margem e em aberto: número simples (Δ não faz sentido ou é o mesmo SQL).
+        if titulo in {"Margem", "A receber em aberto", "A pagar em aberto"}:
+            painel = numero(titulo, atual, cor, unidade, desc)
+        else:
+            painel = numero_delta(titulo, atual, anterior, cor, unidade, desc)
+        p.add((i % 6) * 4, (i // 6) * 4, 4, 4, painel)
+
+    p.add(0, 4, 8, 3, numero(
+        "Horas desde a última coleta",
+        HORAS_COLETA,
+        VERDE,
+        "none",
+        "Alerta visual: amarelo ≥ 3h, vermelho ≥ 6h sem sincronização Bling→Postgres.",
+        limiares=[
+            {"color": VERDE, "value": None},
+            {"color": LARANJA, "value": 3},
+            {"color": VERMELHO, "value": 6},
+        ],
+    ))
+    p.add(8, 4, 16, 3, tabela(
+        "Última coleta financeira",
+        f"""SELECT empresa AS "Empresa", coletado_em AS "Coletado em",
+                   CASE WHEN ok = 1 THEN 'ok' ELSE 'com erros' END AS "Status",
+                   erros AS "Erros", resumo AS "Resumo"
+              FROM vw_coleta_meta WHERE {EMPRESA} ORDER BY 1""",
+        contagens=("Erros",),
+        descricao="Momento da última sincronização por empresa.",
+    ))
+
+    p.add(0, 7, 12, 9, colunas_mensais("Faturamento mensal por empresa", FAT_MENSAL, empilhar=True))
+    p.add(12, 7, 12, 9, barras(
+        "Entradas x saídas de caixa", ENTRADAS_SAIDAS, "Mês", VERDE, False, cores=CORES_CAIXA,
+    ))
+    p.add(0, 16, 24, 5, tabela("Resumo por empresa", f"""
         WITH f AS (SELECT empresa, SUM(total) fat FROM vw_faturamento
                      WHERE {EMPRESA} AND $__timeFilter(data) GROUP BY 1),
              d AS (SELECT empresa, SUM(valor) FILTER (WHERE natureza = 'receita') rec,
@@ -306,26 +466,11 @@ def visao_geral() -> Painel:
                d.res AS "Resultado", a.arec AS "A receber em aberto", a.apag AS "A pagar em aberto"
           FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa) LEFT JOIN a USING (empresa)
          ORDER BY 1"""))
-    p.add(0, 20, 16, 5, tabela(
-        "Última coleta financeira",
-        f"""SELECT empresa AS "Empresa", coletado_em AS "Coletado em",
-                   CASE WHEN ok = 1 THEN 'ok' ELSE 'com erros' END AS "Status",
-                   erros AS "Erros", resumo AS "Resumo"
-              FROM vw_coleta_meta WHERE {EMPRESA} ORDER BY 1""",
-        contagens=("Erros",),
-        descricao="Momento da última sincronização Bling → Postgres por empresa.",
-    ))
-    p.add(16, 20, 8, 5, numero(
-        "Coletas com erro (linhas)",
-        f"SELECT COALESCE(SUM(erros), 0) FROM vw_coleta_meta WHERE {EMPRESA}",
-        VERMELHO,
-        "none",
-        "Soma dos erros reportados na última coleta de cada empresa selecionada.",
-    ))
-    p.add(0, 25, 24, 9, barras("Maiores gastos por categoria", f"""
-        SELECT categoria AS "Categoria", -SUM(valor) AS "Despesas" FROM vw_dre
+    p.add(0, 21, 24, 9, barras("Maiores gastos por grupo de categoria", f"""
+        SELECT categoria_grupo AS "Grupo", -SUM(valor) AS "Despesas" FROM vw_dre
          WHERE natureza = 'despesa' AND {EMPRESA} AND $__timeFilter(competencia)
-         GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", "Categoria", VERMELHO))
+         GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", "Grupo", VERMELHO,
+        descricao="Agrega pela categoria pai quando existir; senão usa a própria categoria."))
     return p
 
 
@@ -361,11 +506,13 @@ def dre() -> Painel:
                SUM(valor) / NULLIF(SUM(valor) FILTER (WHERE natureza = 'receita'), 0) AS "Margem"
           FROM vw_dre WHERE {EMPRESA} AND $__timeFilter(competencia) GROUP BY 1 ORDER BY 1""",
         percentuais=("Margem",)))
-    p.add(12, 13, 12, 11, tabela("DRE por categoria", f"""
+    p.add(12, 13, 12, 11, tabela("DRE por grupo e categoria", f"""
         SELECT CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS "Natureza",
-               categoria AS "Categoria", SUM(ABS(valor)) AS "Valor"
+               categoria_grupo AS "Grupo",
+               categoria AS "Categoria",
+               SUM(ABS(valor)) AS "Valor"
           FROM vw_dre WHERE {EMPRESA} AND $__timeFilter(competencia)
-         GROUP BY 1, 2 ORDER BY 1 DESC, 3 DESC"""))
+         GROUP BY 1, 2, 3 ORDER BY 1 DESC, 4 DESC"""))
     return p
 
 
@@ -410,11 +557,20 @@ def faturamento() -> Painel:
         "4. Faturamento",
         "Pedidos de venda do Bling pela data do pedido (exclui situação cancelado, id 12).",
     )
-    p.add(0, 0, 8, 4, numero("Faturamento", FATURAMENTO, AZUL))
-    p.add(8, 0, 8, 4, numero("Pedidos", f"SELECT COUNT(*) FROM vw_faturamento WHERE {EMPRESA} "
-                                        "AND $__timeFilter(data)", AZUL, "none"))
-    p.add(16, 0, 8, 4, numero("Ticket médio", f"SELECT AVG(total) FROM vw_faturamento WHERE {EMPRESA} "
-                                              "AND $__timeFilter(data)", AZUL))
+    p.add(0, 0, 8, 4, numero_delta(
+        "Faturamento", FATURAMENTO, FATURAMENTO_ANT, AZUL,
+        descricao="Pedidos no período.",
+    ))
+    p.add(8, 0, 8, 4, numero(
+        "Pedidos",
+        f"SELECT COUNT(*) FROM vw_faturamento WHERE {EMPRESA} AND $__timeFilter(data)",
+        AZUL, "none",
+    ))
+    p.add(16, 0, 8, 4, numero(
+        "Ticket médio",
+        f"SELECT AVG(total) FROM vw_faturamento WHERE {EMPRESA} AND $__timeFilter(data)",
+        AZUL,
+    ))
     p.add(0, 4, 14, 9, colunas_mensais("Faturamento mensal por empresa", FAT_MENSAL, empilhar=True))
     p.add(14, 4, 10, 9, tabela("Por empresa", f"""
         SELECT empresa AS "Empresa", COUNT(*) AS "Pedidos", SUM(total) AS "Faturamento",
@@ -465,24 +621,28 @@ def contas(uid: str, titulo: str, natureza: str, contato: str, contatos: str, co
 
 
 def gastos_receitas() -> Painel:
-    p = Painel("fin-gastos-receitas", "7. Gastos e Receitas",
-               "Categorias de receita e despesa por competência.")
-    p.add(0, 0, 12, 12, barras("Gastos por categoria", f"""
-        SELECT categoria AS "Categoria", -SUM(valor) AS "Despesas" FROM vw_dre
+    p = Painel(
+        "fin-gastos-receitas",
+        "7. Gastos e Receitas",
+        "Categorias de receita e despesa por competência, com grupo (categoria pai).",
+    )
+    p.add(0, 0, 12, 12, barras("Gastos por grupo", f"""
+        SELECT categoria_grupo AS "Grupo", -SUM(valor) AS "Despesas" FROM vw_dre
          WHERE natureza = 'despesa' AND {EMPRESA} AND $__timeFilter(competencia)
-         GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", "Categoria", VERMELHO))
-    p.add(12, 0, 12, 12, barras("Receitas por categoria", f"""
-        SELECT categoria AS "Categoria", SUM(valor) AS "Receita" FROM vw_dre
+         GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", "Grupo", VERMELHO))
+    p.add(12, 0, 12, 12, barras("Receitas por grupo", f"""
+        SELECT categoria_grupo AS "Grupo", SUM(valor) AS "Receita" FROM vw_dre
          WHERE natureza = 'receita' AND {EMPRESA} AND $__timeFilter(competencia)
-         GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", "Categoria", VERDE))
-    p.add(0, 12, 24, 12, tabela("Categorias por empresa", f"""
-        SELECT categoria AS "Categoria",
+         GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", "Grupo", VERDE))
+    p.add(0, 12, 24, 12, tabela("Grupo e categoria por empresa", f"""
+        SELECT categoria_grupo AS "Grupo",
+               categoria AS "Categoria",
                CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS "Natureza",
                empresa AS "Empresa", SUM(ABS(valor)) AS "Valor",
                SUM(ABS(valor))
                  / NULLIF(SUM(SUM(ABS(valor))) OVER (PARTITION BY natureza, empresa), 0) AS "% da empresa"
           FROM vw_dre WHERE {EMPRESA} AND $__timeFilter(competencia)
-         GROUP BY 1, 2, 3, natureza ORDER BY 2 DESC, 4 DESC""", percentuais=("% da empresa",)))
+         GROUP BY 1, 2, 3, 4, natureza ORDER BY 3 DESC, 5 DESC""", percentuais=("% da empresa",)))
     return p
 
 
@@ -491,10 +651,12 @@ PAINEIS = {
     "2-dre": dre,
     "3-fluxo-de-caixa": fluxo,
     "4-faturamento": faturamento,
-    "5-contas-a-pagar": lambda: contas("fin-pagar", "5. Contas a Pagar", "despesa",
-                                       "Fornecedor", "fornecedores", LARANJA),
-    "6-contas-a-receber": lambda: contas("fin-receber", "6. Contas a Receber", "receita",
-                                         "Cliente", "clientes", VERDE),
+    "5-contas-a-pagar": lambda: contas(
+        "fin-pagar", "5. Contas a Pagar", "despesa", "Fornecedor", "fornecedores", LARANJA,
+    ),
+    "6-contas-a-receber": lambda: contas(
+        "fin-receber", "6. Contas a Receber", "receita", "Cliente", "clientes", VERDE,
+    ),
     "7-gastos-e-receitas": gastos_receitas,
 }
 

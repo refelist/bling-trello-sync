@@ -192,7 +192,7 @@ Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `cat
 
 | Visão / métrica | Significado |
 |---|---|
-| `vw_dre` / Receita · Despesas · Resultado | **Competência** dos títulos (valor do título; exclui cancelados situacao=5). Não é caixa. |
+| `vw_dre` / Receita · Despesas · Resultado | **Competência** dos títulos (valor do título; exclui cancelados situacao=5). Não é caixa. Inclui `categoria_grupo` (pai). |
 | `vw_fluxo_caixa` / Saldo do caixa | **Caixa realizado** via borderôs: `valor_pago + juros + acréscimo − desconto − tarifa`. |
 | `vw_faturamento` / Faturamento | Pedidos de venda pela data do pedido; **exclui** situação cancelado (id `12` no mapa JH/JHS). |
 | `vw_contas_em_aberto` | Saldo em aberto hoje (independente do filtro de período nos painéis). |
@@ -220,6 +220,8 @@ Alternativa no navegador, no próprio servidor, com as mesmas visões:
 3. Cadastre usuários **Viewer** em *Administração > Usuários*.
 
 Painéis gerados por `grafana/gerar_paineis.py`; após alterar o script, rode-o, faça commit dos JSON em `grafana/paineis/` e rode `instalar.sh` de novo.
+
+A Visão Geral usa timezone `America/Sao_Paulo`, refresh a cada 15 min, 6 cartões hero com Δ vs período anterior, indicador de horas desde a última coleta (amarelo ≥3h / vermelho ≥6h) e alerta provisionado em `grafana/alertas/financeiro.yaml` (coleta > 6h).
 
 ## Backup
 

@@ -1,11 +1,11 @@
 {
   "uid": "fin-gastos-receitas",
   "title": "7. Gastos e Receitas",
-  "description": "Categorias de receita e despesa por competência.",
+  "description": "Categorias de receita e despesa por competência, com grupo (categoria pai).",
   "tags": [
     "financeiro"
   ],
-  "timezone": "utc",
+  "timezone": "America/Sao_Paulo",
   "editable": false,
   "graphTooltip": 1,
   "schemaVersion": 41,
@@ -65,7 +65,7 @@
   "panels": [
     {
       "type": "barchart",
-      "title": "Gastos por categoria",
+      "title": "Gastos por grupo",
       "description": "",
       "targets": [
         {
@@ -77,7 +77,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT categoria AS \"Categoria\", -SUM(valor) AS \"Despesas\" FROM vw_dre WHERE natureza = 'despesa' AND empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1 ORDER BY 2 DESC LIMIT 15"
+          "rawSql": "SELECT categoria_grupo AS \"Grupo\", -SUM(valor) AS \"Despesas\" FROM vw_dre WHERE natureza = 'despesa' AND empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1 ORDER BY 2 DESC LIMIT 15"
         }
       ],
       "fieldConfig": {
@@ -97,7 +97,7 @@
       },
       "options": {
         "orientation": "horizontal",
-        "xField": "Categoria",
+        "xField": "Grupo",
         "showValue": "auto",
         "barWidth": 0.8,
         "groupWidth": 0.7,
@@ -128,7 +128,7 @@
     },
     {
       "type": "barchart",
-      "title": "Receitas por categoria",
+      "title": "Receitas por grupo",
       "description": "",
       "targets": [
         {
@@ -140,7 +140,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT categoria AS \"Categoria\", SUM(valor) AS \"Receita\" FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1 ORDER BY 2 DESC LIMIT 15"
+          "rawSql": "SELECT categoria_grupo AS \"Grupo\", SUM(valor) AS \"Receita\" FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1 ORDER BY 2 DESC LIMIT 15"
         }
       ],
       "fieldConfig": {
@@ -160,7 +160,7 @@
       },
       "options": {
         "orientation": "horizontal",
-        "xField": "Categoria",
+        "xField": "Grupo",
         "showValue": "auto",
         "barWidth": 0.8,
         "groupWidth": 0.7,
@@ -191,7 +191,7 @@
     },
     {
       "type": "table",
-      "title": "Categorias por empresa",
+      "title": "Grupo e categoria por empresa",
       "description": "",
       "targets": [
         {
@@ -203,7 +203,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT categoria AS \"Categoria\", CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS \"Natureza\", empresa AS \"Empresa\", SUM(ABS(valor)) AS \"Valor\", SUM(ABS(valor)) / NULLIF(SUM(SUM(ABS(valor))) OVER (PARTITION BY natureza, empresa), 0) AS \"% da empresa\" FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1, 2, 3, natureza ORDER BY 2 DESC, 4 DESC"
+          "rawSql": "SELECT categoria_grupo AS \"Grupo\", categoria AS \"Categoria\", CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS \"Natureza\", empresa AS \"Empresa\", SUM(ABS(valor)) AS \"Valor\", SUM(ABS(valor)) / NULLIF(SUM(SUM(ABS(valor))) OVER (PARTITION BY natureza, empresa), 0) AS \"% da empresa\" FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1, 2, 3, 4, natureza ORDER BY 3 DESC, 5 DESC"
         }
       ],
       "fieldConfig": {

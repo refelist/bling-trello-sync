@@ -5,7 +5,7 @@
   "tags": [
     "financeiro"
   ],
-  "timezone": "utc",
+  "timezone": "America/Sao_Paulo",
   "editable": false,
   "graphTooltip": 1,
   "schemaVersion": 41,
@@ -191,7 +191,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_fluxo_caixa WHERE empresa IN ($empresa) AND $__timeFilter(data)"
+          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_fluxo_caixa WHERE empresa IN ($empresa) AND data >= to_timestamp($__from / 1000.0) AND data < to_timestamp($__to / 1000.0)"
         }
       ],
       "fieldConfig": {

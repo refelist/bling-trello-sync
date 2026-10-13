@@ -26,7 +26,10 @@ echo ">> Configurando a conexão com o banco e os painéis"
 SENHA_BANCO="$(head -n 1 "$SENHA_BANCO_ARQ" | tr -d '\r\n')"
 ASPA="'"
 SENHA_YAML="${SENHA_BANCO//$ASPA/$ASPA$ASPA}"
-install -d -o root -g grafana -m 750 /etc/grafana/provisioning/datasources /etc/grafana/provisioning/dashboards
+install -d -o root -g grafana -m 750 \
+    /etc/grafana/provisioning/datasources \
+    /etc/grafana/provisioning/dashboards \
+    /etc/grafana/provisioning/alerting
 install -m 640 -o root -g grafana /dev/null /etc/grafana/provisioning/datasources/financeiro.yaml
 cat > /etc/grafana/provisioning/datasources/financeiro.yaml <<YAML
 apiVersion: 1
@@ -62,6 +65,11 @@ chgrp grafana /etc/grafana/provisioning/dashboards/financeiro.yaml
 install -d -o grafana -g grafana "$PAINEIS"
 rm -f "$PAINEIS"/*.json
 install -m 644 -o grafana -g grafana "$PASTA_REPO"/grafana/paineis/*.json "$PAINEIS"/
+if [ -f "$PASTA_REPO/grafana/alertas/financeiro.yaml" ]; then
+    install -m 640 -o root -g grafana \
+        "$PASTA_REPO/grafana/alertas/financeiro.yaml" \
+        /etc/grafana/provisioning/alerting/financeiro.yaml
+fi
 
 mkdir -p /etc/systemd/system/grafana-server.service.d
 cat > /etc/systemd/system/grafana-server.service.d/financeiro.conf <<CONF

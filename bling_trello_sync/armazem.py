@@ -172,9 +172,13 @@ SELECT l.empresa,
        l.competencia,
        l.natureza,
        COALESCE(c.descricao, 'Sem categoria') AS categoria,
+       COALESCE(NULLIF(pai.descricao, ''), COALESCE(c.descricao, 'Sem categoria')) AS categoria_grupo,
        CASE WHEN l.natureza = 'receita' THEN l.valor ELSE -l.valor END AS valor
   FROM vw_lancamento l
   LEFT JOIN categoria c ON c.empresa = l.empresa AND c.id = l.categoria_id
+  LEFT JOIN categoria pai
+    ON pai.empresa = c.empresa
+   AND pai.id = NULLIF(c.id_categoria_pai, 0)
  WHERE l.situacao <> 5;
 
 CREATE VIEW vw_fluxo_caixa AS
@@ -250,8 +254,7 @@ CHAVES = {
 }
 
 # Suba este número quando mudar tabelas/visões para forçar migração única (sem DROP a cada boot).
-ESQUEMA_VERSAO = 3
-
+ESQUEMA_VERSAO = 4
 
 def versao_da_conta(situacao: Any, valor: Any, vencimento: Any) -> tuple[Any, ...]:
     """Identidade usada para saber se a conta mudou desde a última coleta."""

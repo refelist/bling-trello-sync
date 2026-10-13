@@ -5,7 +5,7 @@
   "tags": [
     "financeiro"
   ],
-  "timezone": "utc",
+  "timezone": "America/Sao_Paulo",
   "editable": false,
   "graphTooltip": 1,
   "schemaVersion": 41,
@@ -77,7 +77,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND $__timeFilter(competencia)"
+          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE natureza = 'receita' AND empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0)"
         }
       ],
       "fieldConfig": {
@@ -134,7 +134,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT COALESCE(-SUM(valor), 0) FROM vw_dre WHERE natureza = 'despesa' AND empresa IN ($empresa) AND $__timeFilter(competencia)"
+          "rawSql": "SELECT COALESCE(-SUM(valor), 0) FROM vw_dre WHERE natureza = 'despesa' AND empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0)"
         }
       ],
       "fieldConfig": {
@@ -191,7 +191,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia)"
+          "rawSql": "SELECT COALESCE(SUM(valor), 0) FROM vw_dre WHERE empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0)"
         }
       ],
       "fieldConfig": {
@@ -248,7 +248,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT SUM(valor) / NULLIF(SUM(valor) FILTER (WHERE natureza = 'receita'), 0) FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia)"
+          "rawSql": "SELECT SUM(valor) / NULLIF(SUM(valor) FILTER (WHERE natureza = 'receita'), 0) FROM vw_dre WHERE empresa IN ($empresa) AND competencia >= to_timestamp($__from / 1000.0) AND competencia < to_timestamp($__to / 1000.0)"
         }
       ],
       "fieldConfig": {
@@ -528,7 +528,7 @@
     },
     {
       "type": "table",
-      "title": "DRE por categoria",
+      "title": "DRE por grupo e categoria",
       "description": "",
       "targets": [
         {
@@ -540,7 +540,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS \"Natureza\", categoria AS \"Categoria\", SUM(ABS(valor)) AS \"Valor\" FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1, 2 ORDER BY 1 DESC, 3 DESC"
+          "rawSql": "SELECT CASE WHEN natureza = 'receita' THEN 'Receita' ELSE 'Despesa' END AS \"Natureza\", categoria_grupo AS \"Grupo\", categoria AS \"Categoria\", SUM(ABS(valor)) AS \"Valor\" FROM vw_dre WHERE empresa IN ($empresa) AND $__timeFilter(competencia) GROUP BY 1, 2, 3 ORDER BY 1 DESC, 4 DESC"
         }
       ],
       "fieldConfig": {

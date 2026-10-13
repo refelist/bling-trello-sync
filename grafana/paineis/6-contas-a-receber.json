@@ -5,7 +5,7 @@
   "tags": [
     "financeiro"
   ],
-  "timezone": "utc",
+  "timezone": "America/Sao_Paulo",
   "editable": false,
   "graphTooltip": 1,
   "schemaVersion": 41,
