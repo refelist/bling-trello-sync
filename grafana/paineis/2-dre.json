@@ -1,7 +1,7 @@
 {
   "uid": "fin-dre",
   "title": "2. DRE",
-  "description": "Receitas e despesas pela data de competência.",
+  "description": "Receitas e despesas pela data de competência dos títulos (não é fluxo de caixa).",
   "tags": [
     "financeiro"
   ],

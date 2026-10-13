@@ -202,8 +202,8 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/metrics")
-def metrics() -> dict[str, int]:
-    """Contadores do processo (limites de taxa e erros HTTP do Bling)."""
+def metrics() -> dict[str, int | str | bool]:
+    """Contadores do processo (429/erros HTTP do Bling e última coleta financeira)."""
     return metricas.instantaneo()
 
 

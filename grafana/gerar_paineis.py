@@ -260,16 +260,30 @@ ENTRADAS_SAIDAS = (f"""
 CORES_CAIXA = {"Entradas": VERDE, "Saídas": VERMELHO}
 
 
+SEMANTICA = (
+    "Semântica: Faturamento = pedidos de venda (exclui cancelados). "
+    "Receita/Despesas/DRE = competência dos títulos (não caixa). "
+    "Saldo do caixa = borderôs (valor pago ± juros/acréscimo − desconto − tarifa)."
+)
+
+
 def visao_geral() -> Painel:
-    p = Painel("fin-visao-geral", "1. Visão Geral",
-               "Resumo do período: faturamento, resultado, caixa e contas em aberto.")
+    p = Painel(
+        "fin-visao-geral",
+        "1. Visão Geral",
+        "Resumo do período: faturamento, resultado, caixa e contas em aberto. " + SEMANTICA,
+    )
     cartoes = [
-        ("Faturamento", FATURAMENTO, AZUL, "currencyBRL", ""),
-        ("Receita", RECEITA, VERDE, "currencyBRL", ""),
-        ("Despesas", DESPESAS, VERMELHO, "currencyBRL", ""),
-        ("Resultado", RESULTADO, AZUL, "currencyBRL", ""),
-        ("Margem", MARGEM, AZUL, "percentunit", ""),
-        ("Saldo do caixa", SALDO_CAIXA, ROXO, "currencyBRL", "Entradas menos saídas no período."),
+        ("Faturamento", FATURAMENTO, AZUL, "currencyBRL",
+         "Soma dos pedidos de venda no período (exclui situação cancelado)."),
+        ("Receita", RECEITA, VERDE, "currencyBRL",
+         "Títulos a receber por competência (não é caixa)."),
+        ("Despesas", DESPESAS, VERMELHO, "currencyBRL",
+         "Títulos a pagar por competência (não é caixa)."),
+        ("Resultado", RESULTADO, AZUL, "currencyBRL", "Receita − despesas (competência)."),
+        ("Margem", MARGEM, AZUL, "percentunit", "Resultado / receita (competência)."),
+        ("Saldo do caixa", SALDO_CAIXA, ROXO, "currencyBRL",
+         "Entradas − saídas no período (borderôs, valor líquido)."),
         ("A receber em aberto", em_aberto("receita"), VERDE, "currencyBRL", ABERTO_DESCRICAO),
         ("A pagar em aberto", em_aberto("despesa"), LARANJA, "currencyBRL", ABERTO_DESCRICAO),
     ]
@@ -292,7 +306,23 @@ def visao_geral() -> Painel:
                d.res AS "Resultado", a.arec AS "A receber em aberto", a.apag AS "A pagar em aberto"
           FROM e LEFT JOIN f USING (empresa) LEFT JOIN d USING (empresa) LEFT JOIN a USING (empresa)
          ORDER BY 1"""))
-    p.add(0, 20, 24, 9, barras("Maiores gastos por categoria", f"""
+    p.add(0, 20, 16, 5, tabela(
+        "Última coleta financeira",
+        f"""SELECT empresa AS "Empresa", coletado_em AS "Coletado em",
+                   CASE WHEN ok = 1 THEN 'ok' ELSE 'com erros' END AS "Status",
+                   erros AS "Erros", resumo AS "Resumo"
+              FROM vw_coleta_meta WHERE {EMPRESA} ORDER BY 1""",
+        contagens=("Erros",),
+        descricao="Momento da última sincronização Bling → Postgres por empresa.",
+    ))
+    p.add(16, 20, 8, 5, numero(
+        "Coletas com erro (linhas)",
+        f"SELECT COALESCE(SUM(erros), 0) FROM vw_coleta_meta WHERE {EMPRESA}",
+        VERMELHO,
+        "none",
+        "Soma dos erros reportados na última coleta de cada empresa selecionada.",
+    ))
+    p.add(0, 25, 24, 9, barras("Maiores gastos por categoria", f"""
         SELECT categoria AS "Categoria", -SUM(valor) AS "Despesas" FROM vw_dre
          WHERE natureza = 'despesa' AND {EMPRESA} AND $__timeFilter(competencia)
          GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", "Categoria", VERMELHO))
@@ -300,7 +330,11 @@ def visao_geral() -> Painel:
 
 
 def dre() -> Painel:
-    p = Painel("fin-dre", "2. DRE", "Receitas e despesas pela data de competência.")
+    p = Painel(
+        "fin-dre",
+        "2. DRE",
+        "Receitas e despesas pela data de competência dos títulos (não é fluxo de caixa).",
+    )
     for i, (titulo, sql, cor, unidade) in enumerate([
         ("Receita", RECEITA, VERDE, "currencyBRL"),
         ("Despesas", DESPESAS, VERMELHO, "currencyBRL"),
@@ -336,7 +370,12 @@ def dre() -> Painel:
 
 
 def fluxo() -> Painel:
-    p = Painel("fin-fluxo", "3. Fluxo de Caixa", "Pagamentos e recebimentos efetivados (borderôs do Bling).")
+    p = Painel(
+        "fin-fluxo",
+        "3. Fluxo de Caixa",
+        "Pagamentos e recebimentos efetivados (borderôs). "
+        "Valor líquido = valor pago + juros + acréscimo − desconto − tarifa.",
+    )
     for i, (titulo, sql, cor) in enumerate([
         ("Entradas", f"SELECT COALESCE(SUM(valor), 0) FROM vw_fluxo_caixa WHERE tipo = 'receber' "
                      f"AND {EMPRESA} AND $__timeFilter(data)", VERDE),
@@ -366,7 +405,11 @@ def fluxo() -> Painel:
 
 
 def faturamento() -> Painel:
-    p = Painel("fin-faturamento", "4. Faturamento", "Pedidos de venda do Bling pela data do pedido.")
+    p = Painel(
+        "fin-faturamento",
+        "4. Faturamento",
+        "Pedidos de venda do Bling pela data do pedido (exclui situação cancelado, id 12).",
+    )
     p.add(0, 0, 8, 4, numero("Faturamento", FATURAMENTO, AZUL))
     p.add(8, 0, 8, 4, numero("Pedidos", f"SELECT COUNT(*) FROM vw_faturamento WHERE {EMPRESA} "
                                         "AND $__timeFilter(data)", AZUL, "none"))
@@ -417,7 +460,7 @@ def contas(uid: str, titulo: str, natureza: str, contato: str, contatos: str, co
         SELECT to_char(vencimento, 'DD/MM/YYYY') AS "Vencimento", empresa AS "Empresa",
                contato_nome AS "{contato}", categoria AS "Categoria", valor_em_aberto AS "Em aberto"
           FROM vw_contas_em_aberto WHERE natureza = '{natureza}' AND {EMPRESA}
-         ORDER BY vencimento NULLS LAST LIMIT 500"""))
+         ORDER BY vencimento NULLS LAST LIMIT 200"""))
     return p
 
 

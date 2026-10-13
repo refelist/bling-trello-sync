@@ -128,9 +128,20 @@ CREATE TABLE IF NOT EXISTS pedido_venda (
     atualizado_em TEXT,
     PRIMARY KEY (empresa, id)
 );
+
+CREATE TABLE IF NOT EXISTS coleta_meta (
+    empresa TEXT NOT NULL PRIMARY KEY,
+    coletado_em TEXT NOT NULL,
+    ok INTEGER NOT NULL DEFAULT 1,
+    erros INTEGER NOT NULL DEFAULT 0,
+    resumo TEXT
+);
 """
 
-VISOES = """
+# Situação de pedido de venda "Cancelado" no mapa JH/JHS (NOMES_SITUACOES / Trello).
+SITUACAO_PEDIDO_CANCELADO = 12
+
+_VISOES_TEMPLATE = """
 CREATE VIEW vw_lancamento AS
 SELECT r.empresa, 'receita' AS natureza, r.id, situacao,
        CASE situacao WHEN 1 THEN 'Em aberto' WHEN 2 THEN 'Liquidado' WHEN 3 THEN 'Parcial'
@@ -173,7 +184,18 @@ SELECT m.empresa,
        c.descricao AS categoria,
        f.descricao AS conta_financeira,
        m.contato_nome,
-       CASE WHEN m.tipo = 'receber' THEN m.valor_pago ELSE -m.valor_pago END AS valor
+       m.valor_pago,
+       m.juros,
+       m.desconto,
+       m.acrescimo,
+       m.tarifa,
+       CASE WHEN m.tipo = 'receber' THEN
+              COALESCE(m.valor_pago, 0) + COALESCE(m.juros, 0) + COALESCE(m.acrescimo, 0)
+              - COALESCE(m.desconto, 0) - COALESCE(m.tarifa, 0)
+            ELSE
+              -(COALESCE(m.valor_pago, 0) + COALESCE(m.juros, 0) + COALESCE(m.acrescimo, 0)
+                - COALESCE(m.desconto, 0) - COALESCE(m.tarifa, 0))
+       END AS valor
   FROM movimento_caixa m
   LEFT JOIN categoria c ON c.empresa = m.empresa AND c.id = m.categoria_id
   LEFT JOIN conta_financeira f ON f.empresa = m.empresa AND f.id = m.portador_id;
@@ -191,7 +213,28 @@ SELECT l.empresa,
 
 CREATE VIEW vw_faturamento AS
 SELECT empresa, data, numero, contato_nome, loja_id, situacao_id, total
-  FROM pedido_venda;
+  FROM pedido_venda
+ WHERE situacao_id IS NULL OR situacao_id <> {cancelado};
+
+CREATE VIEW vw_coleta_meta AS
+SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta;
+"""
+
+VISOES = _VISOES_TEMPLATE.format(cancelado=SITUACAO_PEDIDO_CANCELADO)
+
+INDICES = """
+CREATE INDEX IF NOT EXISTS idx_conta_receber_empresa_competencia
+    ON conta_receber (empresa, competencia);
+CREATE INDEX IF NOT EXISTS idx_conta_receber_empresa_vencimento
+    ON conta_receber (empresa, vencimento);
+CREATE INDEX IF NOT EXISTS idx_conta_pagar_empresa_competencia
+    ON conta_pagar (empresa, competencia);
+CREATE INDEX IF NOT EXISTS idx_conta_pagar_empresa_vencimento
+    ON conta_pagar (empresa, vencimento);
+CREATE INDEX IF NOT EXISTS idx_movimento_caixa_empresa_data
+    ON movimento_caixa (empresa, data);
+CREATE INDEX IF NOT EXISTS idx_pedido_venda_empresa_data
+    ON pedido_venda (empresa, data);
 """
 
 CHAVES = {
@@ -203,10 +246,11 @@ CHAVES = {
     "conta_pagar": ("empresa", "id"),
     "movimento_caixa": ("empresa", "bordero_id", "conta_id", "sequencia"),
     "pedido_venda": ("empresa", "id"),
+    "coleta_meta": ("empresa",),
 }
 
 # Suba este número quando mudar tabelas/visões para forçar migração única (sem DROP a cada boot).
-ESQUEMA_VERSAO = 2
+ESQUEMA_VERSAO = 3
 
 
 def versao_da_conta(situacao: Any, valor: Any, vencimento: Any) -> tuple[Any, ...]:
@@ -257,6 +301,9 @@ class Armazem:
                 if comando.strip():
                     cursor.execute(comando)
             self._migrar_movimento_caixa(cursor)
+            for comando in INDICES.split(";"):
+                if comando.strip():
+                    cursor.execute(comando)
             versao = self._ler_versao(cursor)
             if versao < ESQUEMA_VERSAO:
                 for nome in reversed(nomes_visao):
@@ -413,3 +460,31 @@ class Armazem:
             (empresa,),
         )
         return [int(linha[0]) for linha in linhas]
+
+    def registrar_coleta(
+        self, empresa: str, *, ok: bool, erros: int, resumo: str, coletado_em: str
+    ) -> None:
+        """Grava o resultado da última coleta financeira da empresa (lido pelos painéis)."""
+        self.gravar(
+            "coleta_meta",
+            [
+                {
+                    "empresa": empresa,
+                    "coletado_em": coletado_em,
+                    "ok": 1 if ok else 0,
+                    "erros": erros,
+                    "resumo": resumo[:2000] if resumo else None,
+                }
+            ],
+        )
+
+    def ultima_coleta(self, empresa: str | None = None) -> list[tuple[Any, ...]]:
+        if empresa is None:
+            return self.ler(
+                "SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta ORDER BY empresa"
+            )
+        return self.ler(
+            "SELECT empresa, coletado_em, ok, erros, resumo FROM coleta_meta "
+            f"WHERE empresa = {self.placeholder}",
+            (empresa,),
+        )

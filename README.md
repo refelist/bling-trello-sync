@@ -186,7 +186,19 @@ python -m bling_trello_sync.cli sincronizar-financeiro --data-inicial 2025-01-01
 
 Coletado: contas a receber/pagar, borderôs (com juros, desconto, acréscimo, tarifa e sequência de pagamento), pedidos de venda e dimensões (categoria, conta financeira, forma de pagamento, contato). Detalhe de conta só é relido quando situação, valor ou vencimento mudam (`--recarregar-tudo` força).
 
-Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`. Visões: `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`.
+Tabelas: `conta_receber`, `conta_pagar`, `movimento_caixa`, `pedido_venda`, `categoria`, `conta_financeira`, `forma_pagamento`, `contato`, `coleta_meta`. Visões: `vw_lancamento`, `vw_dre`, `vw_fluxo_caixa`, `vw_contas_em_aberto`, `vw_faturamento`, `vw_coleta_meta`.
+
+**Semântica dos números (importante):**
+
+| Visão / métrica | Significado |
+|---|---|
+| `vw_dre` / Receita · Despesas · Resultado | **Competência** dos títulos (valor do título; exclui cancelados situacao=5). Não é caixa. |
+| `vw_fluxo_caixa` / Saldo do caixa | **Caixa realizado** via borderôs: `valor_pago + juros + acréscimo − desconto − tarifa`. |
+| `vw_faturamento` / Faturamento | Pedidos de venda pela data do pedido; **exclui** situação cancelado (id `12` no mapa JH/JHS). |
+| `vw_contas_em_aberto` | Saldo em aberto hoje (independente do filtro de período nos painéis). |
+| `vw_coleta_meta` | Última sincronização Bling→Postgres por empresa (status e erros). |
+
+Índices em `(empresa, competência/vencimento/data)` aceleram os painéis. Após mudar visões, o `ESQUEMA_VERSAO` no `armazem` força a recriação uma vez.
 
 ### Relatório Power BI
 

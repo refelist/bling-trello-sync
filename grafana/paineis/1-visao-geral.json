@@ -1,7 +1,7 @@
 {
   "uid": "fin-visao-geral",
   "title": "1. Visão Geral",
-  "description": "Resumo do período: faturamento, resultado, caixa e contas em aberto.",
+  "description": "Resumo do período: faturamento, resultado, caixa e contas em aberto. Semântica: Faturamento = pedidos de venda (exclui cancelados). Receita/Despesas/DRE = competência dos títulos (não caixa). Saldo do caixa = borderôs (valor pago ± juros/acréscimo − desconto − tarifa).",
   "tags": [
     "financeiro"
   ],
@@ -66,7 +66,7 @@
     {
       "type": "stat",
       "title": "Faturamento",
-      "description": "",
+      "description": "Soma dos pedidos de venda no período (exclui situação cancelado).",
       "targets": [
         {
           "refId": "A",
@@ -123,7 +123,7 @@
     {
       "type": "stat",
       "title": "Receita",
-      "description": "",
+      "description": "Títulos a receber por competência (não é caixa).",
       "targets": [
         {
           "refId": "A",
@@ -180,7 +180,7 @@
     {
       "type": "stat",
       "title": "Despesas",
-      "description": "",
+      "description": "Títulos a pagar por competência (não é caixa).",
       "targets": [
         {
           "refId": "A",
@@ -237,7 +237,7 @@
     {
       "type": "stat",
       "title": "Resultado",
-      "description": "",
+      "description": "Receita − despesas (competência).",
       "targets": [
         {
           "refId": "A",
@@ -294,7 +294,7 @@
     {
       "type": "stat",
       "title": "Margem",
-      "description": "",
+      "description": "Resultado / receita (competência).",
       "targets": [
         {
           "refId": "A",
@@ -351,7 +351,7 @@
     {
       "type": "stat",
       "title": "Saldo do caixa",
-      "description": "Entradas menos saídas no período.",
+      "description": "Entradas − saídas no período (borderôs, valor líquido).",
       "targets": [
         {
           "refId": "A",
@@ -722,6 +722,127 @@
       }
     },
     {
+      "type": "table",
+      "title": "Última coleta financeira",
+      "description": "Momento da última sincronização Bling → Postgres por empresa.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT empresa AS \"Empresa\", coletado_em AS \"Coletado em\", CASE WHEN ok = 1 THEN 'ok' ELSE 'com erros' END AS \"Status\", erros AS \"Erros\", resumo AS \"Resumo\" FROM vw_coleta_meta WHERE empresa IN ($empresa) ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyBRL",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "minWidth": 90
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Erros"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 16,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Coletas com erro (linhas)",
+      "description": "Soma dos erros reportados na última coleta de cada empresa selecionada.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "financeiro"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT COALESCE(SUM(erros), 0) FROM vw_coleta_meta WHERE empresa IN ($empresa)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#C62828"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "id": 13,
+      "gridPos": {
+        "x": 16,
+        "y": 20,
+        "w": 8,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "financeiro"
+      }
+    },
+    {
       "type": "barchart",
       "title": "Maiores gastos por categoria",
       "description": "",
@@ -772,10 +893,10 @@
           "sort": "none"
         }
       },
-      "id": 12,
+      "id": 14,
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 25,
         "w": 24,
         "h": 9
       },

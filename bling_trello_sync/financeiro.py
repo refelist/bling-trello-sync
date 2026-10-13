@@ -15,6 +15,7 @@ from typing import Any
 from .armazem import Armazem, versao_da_conta
 from .bling import BlingClient
 from .config import Settings
+from .metricas import metricas
 
 logger = logging.getLogger(__name__)
 
@@ -405,27 +406,51 @@ class ColetorFinanceiro:
             )
 
         resumo = ResumoFinanceiro()
-        self.coletar_dimensoes(resumo)
-        self._coletar_contas(
-            "conta_receber",
-            self._contas_receber_do_periodo(data_inicial, data_final),
-            self.bling.obter_conta_receber,
-            linha_conta_receber,
-            "receber",
-            resumo,
-            recarregar_tudo,
+        agora = datetime.now().isoformat(timespec="seconds")
+        try:
+            self.coletar_dimensoes(resumo)
+            self._coletar_contas(
+                "conta_receber",
+                self._contas_receber_do_periodo(data_inicial, data_final),
+                self.bling.obter_conta_receber,
+                linha_conta_receber,
+                "receber",
+                resumo,
+                recarregar_tudo,
+            )
+            self._coletar_contas(
+                "conta_pagar",
+                self._contas_pagar_do_periodo(data_inicial, data_final),
+                self.bling.obter_conta_pagar,
+                linha_conta_pagar,
+                "pagar",
+                resumo,
+                recarregar_tudo,
+            )
+            self.completar_contatos(resumo)
+            self.coletar_pedidos_venda(data_inicial, data_final, resumo)
+        except Exception:
+            metricas.registrar_coleta_financeira(
+                empresa=self.empresa, ok=False, erros=len(resumo.erros) + 1
+            )
+            self.armazem.registrar_coleta(
+                self.empresa,
+                ok=False,
+                erros=len(resumo.erros) + 1,
+                resumo=str(resumo),
+                coletado_em=agora,
+            )
+            raise
+        self.armazem.registrar_coleta(
+            self.empresa,
+            ok=not resumo.erros,
+            erros=len(resumo.erros),
+            resumo=str(resumo),
+            coletado_em=agora,
         )
-        self._coletar_contas(
-            "conta_pagar",
-            self._contas_pagar_do_periodo(data_inicial, data_final),
-            self.bling.obter_conta_pagar,
-            linha_conta_pagar,
-            "pagar",
-            resumo,
-            recarregar_tudo,
+        metricas.registrar_coleta_financeira(
+            empresa=self.empresa, ok=not resumo.erros, erros=len(resumo.erros)
         )
-        self.completar_contatos(resumo)
-        self.coletar_pedidos_venda(data_inicial, data_final, resumo)
         logger.info("Coleta financeira de %s a %s: %s", data_inicial, data_final, resumo)
         return resumo
 

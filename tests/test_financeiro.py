@@ -194,11 +194,82 @@ def test_coleta_grava_tabelas_e_visoes(settings, armazem):
     dre = dict(armazem.ler("SELECT natureza, SUM(valor) FROM vw_dre GROUP BY natureza"))
     assert dre == {"receita": 100.0, "despesa": -250.0}
 
+    # valor líquido = 100 pago − 1,5 tarifa (juros/desconto/acréscimo zerados no fake)
     caixa = armazem.ler("SELECT SUM(valor) FROM vw_fluxo_caixa")[0][0]
-    assert caixa == 100.0
+    assert caixa == pytest.approx(98.5)
 
     aberto = armazem.ler("SELECT natureza, valor_em_aberto FROM vw_contas_em_aberto")
     assert aberto == [("despesa", 250.0)]
+
+    meta = armazem.ler("SELECT empresa, ok, erros FROM coleta_meta")
+    assert meta == [("Empresa 1", 1, 0)]
+    assert armazem.ler("SELECT COUNT(*) FROM vw_coleta_meta")[0][0] == 1
+
+
+def test_vw_faturamento_exclui_pedidos_cancelados(armazem):
+    armazem.gravar(
+        "pedido_venda",
+        [
+            {
+                "empresa": "E",
+                "id": 1,
+                "numero": "1",
+                "data": "2026-01-01",
+                "data_saida": None,
+                "total": 100.0,
+                "situacao_id": 9,
+                "contato_id": None,
+                "contato_nome": "A",
+                "loja_id": None,
+                "vendedor_id": None,
+                "atualizado_em": "agora",
+            },
+            {
+                "empresa": "E",
+                "id": 2,
+                "numero": "2",
+                "data": "2026-01-02",
+                "data_saida": None,
+                "total": 999.0,
+                "situacao_id": 12,
+                "contato_id": None,
+                "contato_nome": "B",
+                "loja_id": None,
+                "vendedor_id": None,
+                "atualizado_em": "agora",
+            },
+        ],
+    )
+    assert armazem.ler("SELECT SUM(total) FROM vw_faturamento")[0][0] == 100.0
+    assert armazem.ler("SELECT COUNT(*) FROM pedido_venda")[0][0] == 2
+
+
+def test_vw_fluxo_caixa_usa_valor_liquido(armazem):
+    armazem.gravar(
+        "movimento_caixa",
+        [
+            {
+                "empresa": "E",
+                "bordero_id": 1,
+                "conta_id": 1,
+                "sequencia": 0,
+                "tipo": "receber",
+                "data": "2026-01-11",
+                "valor_pago": 100.0,
+                "juros": 2.0,
+                "desconto": 1.0,
+                "acrescimo": 0.5,
+                "tarifa": 1.5,
+                "categoria_id": None,
+                "portador_id": None,
+                "contato_id": None,
+                "contato_nome": None,
+                "historico": None,
+            }
+        ],
+    )
+    # 100 + 2 + 0.5 − 1 − 1.5 = 100
+    assert armazem.ler("SELECT valor FROM vw_fluxo_caixa")[0][0] == pytest.approx(100.0)
 
 
 def test_segunda_coleta_nao_relê_contas_inalteradas(settings, armazem):

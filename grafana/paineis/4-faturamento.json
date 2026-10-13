@@ -1,7 +1,7 @@
 {
   "uid": "fin-faturamento",
   "title": "4. Faturamento",
-  "description": "Pedidos de venda do Bling pela data do pedido.",
+  "description": "Pedidos de venda do Bling pela data do pedido (exclui situação cancelado, id 12).",
   "tags": [
     "financeiro"
   ],

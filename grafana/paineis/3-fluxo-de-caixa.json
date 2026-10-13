@@ -1,7 +1,7 @@
 {
   "uid": "fin-fluxo",
   "title": "3. Fluxo de Caixa",
-  "description": "Pagamentos e recebimentos efetivados (borderôs do Bling).",
+  "description": "Pagamentos e recebimentos efetivados (borderôs). Valor líquido = valor pago + juros + acréscimo − desconto − tarifa.",
   "tags": [
     "financeiro"
   ],

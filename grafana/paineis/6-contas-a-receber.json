@@ -431,7 +431,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT to_char(vencimento, 'DD/MM/YYYY') AS \"Vencimento\", empresa AS \"Empresa\", contato_nome AS \"Cliente\", categoria AS \"Categoria\", valor_em_aberto AS \"Em aberto\" FROM vw_contas_em_aberto WHERE natureza = 'receita' AND empresa IN ($empresa) ORDER BY vencimento NULLS LAST LIMIT 500"
+          "rawSql": "SELECT to_char(vencimento, 'DD/MM/YYYY') AS \"Vencimento\", empresa AS \"Empresa\", contato_nome AS \"Cliente\", categoria AS \"Categoria\", valor_em_aberto AS \"Em aberto\" FROM vw_contas_em_aberto WHERE natureza = 'receita' AND empresa IN ($empresa) ORDER BY vencimento NULLS LAST LIMIT 200"
         }
       ],
       "fieldConfig": {
