@@ -3,9 +3,9 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from .armazem import Armazem
@@ -69,6 +69,28 @@ def get_sincronizador(
     trello: TrelloClient = Depends(get_trello),
 ) -> Sincronizador:
     return Sincronizador(settings, storage, bling, trello)
+
+
+def exigir_api_token(
+    settings: Settings = Depends(get_settings),
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    token: Annotated[str | None, Query()] = None,
+) -> None:
+    """Exige API_TOKEN nas rotas administrativas. O webhook do Bling não usa esta checagem."""
+    esperado = settings.api_token
+    if not esperado:
+        raise HTTPException(
+            status_code=503,
+            detail="API_TOKEN não configurado. Defina a variável no .env para usar esta rota.",
+        )
+    candidato = x_api_key
+    if candidato is None and authorization and authorization.lower().startswith("bearer "):
+        candidato = authorization[7:].strip()
+    if candidato is None:
+        candidato = token
+    if not candidato or not secrets.compare_digest(candidato, esperado):
+        raise HTTPException(status_code=401, detail="Token de API inválido ou ausente")
 
 
 def extrair_id_pedido(data: Any) -> int | None:
@@ -156,21 +178,33 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/oauth/bling/autorizar")
-def autorizar(bling: BlingClient = Depends(get_bling)) -> RedirectResponse:
+@app.get("/oauth/bling/autorizar", dependencies=[Depends(exigir_api_token)])
+def autorizar(
+    bling: BlingClient = Depends(get_bling),
+    storage: Storage = Depends(get_storage),
+) -> RedirectResponse:
     """Inicia o fluxo OAuth2 do Bling (abra no navegador e autorize o aplicativo)."""
-    return RedirectResponse(bling.url_de_autorizacao(state=secrets.token_urlsafe(16)))
+    state = secrets.token_urlsafe(16)
+    storage.salvar_oauth_state(state)
+    return RedirectResponse(bling.url_de_autorizacao(state=state))
 
 
 @app.get("/oauth/bling/callback")
-def callback(code: str | None = None, bling: BlingClient = Depends(get_bling)) -> dict[str, str]:
+def callback(
+    code: str | None = None,
+    state: str | None = None,
+    bling: BlingClient = Depends(get_bling),
+    storage: Storage = Depends(get_storage),
+) -> dict[str, str]:
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente no callback")
+    if not state or not storage.consumir_oauth_state(state):
+        raise HTTPException(status_code=400, detail="Parâmetro 'state' inválido ou ausente")
     bling.trocar_codigo_por_token(code)
     return {"status": "autorizado", "mensagem": "Tokens do Bling armazenados com sucesso."}
 
 
-@app.get("/trello/listas")
+@app.get("/trello/listas", dependencies=[Depends(exigir_api_token)])
 def listas_do_board(
     settings: Settings = Depends(get_settings), trello: TrelloClient = Depends(get_trello)
 ) -> list[dict[str, Any]]:
@@ -178,7 +212,7 @@ def listas_do_board(
     return trello.listar_listas(settings.trello_board_id)
 
 
-@app.post("/sincronizar/{pedido_id}")
+@app.post("/sincronizar/{pedido_id}", dependencies=[Depends(exigir_api_token)])
 def sincronizar_manual(
     pedido_id: int, sincronizador: Sincronizador = Depends(get_sincronizador)
 ) -> dict[str, Any]:
@@ -186,7 +220,7 @@ def sincronizar_manual(
     return resultado.__dict__
 
 
-@app.post("/sincronizar-compra/{pedido_id}")
+@app.post("/sincronizar-compra/{pedido_id}", dependencies=[Depends(exigir_api_token)])
 def sincronizar_compra_manual(
     pedido_id: int, compras: SincronizadorCompras = Depends(get_sincronizador_compras)
 ) -> dict[str, Any]:
@@ -224,18 +258,27 @@ async def webhook_bling(
         logger.warning("Webhook sem id de pedido identificável: %s", evento)
         return JSONResponse({"status": "ignorado", "motivo": "id do pedido não encontrado no payload"})
 
-    if event_id and not storage.registrar_evento(event_id):
+    if event_id and storage.evento_ja_processado(event_id):
         return JSONResponse({"status": "ignorado", "motivo": "evento já processado"})
 
     acao = nome_evento.split(".", 1)[1]
     # O Bling exige resposta 2xx em até 5s, então a sincronização roda fora do ciclo da requisição.
-    background_tasks.add_task(_processar, sincronizador, pedido_id, acao)
+    # O eventId só é gravado depois do card atualizado; se falhar, um reenvio do Bling pode tentar de novo.
+    background_tasks.add_task(_processar, sincronizador, storage, pedido_id, acao, event_id)
     return JSONResponse({"status": "recebido", "pedidoId": pedido_id, "acao": acao}, status_code=202)
 
 
-def _processar(sincronizador: Sincronizador, pedido_id: int, acao: str) -> None:
+def _processar(
+    sincronizador: Sincronizador,
+    storage: Storage,
+    pedido_id: int,
+    acao: str,
+    event_id: str,
+) -> None:
     try:
         resultado = sincronizador.sincronizar_pedido(pedido_id)
+        if event_id:
+            storage.registrar_evento(event_id)
         logger.info("Pedido %s (%s): %s", pedido_id, acao, resultado.acao)
     except Exception:  # noqa: BLE001 - background task não pode derrubar o servidor
-        logger.exception("Falha ao sincronizar o pedido %s", pedido_id)
+        logger.exception("Falha ao sincronizar o pedido %s; o evento não foi marcado como processado", pedido_id)

@@ -54,6 +54,11 @@ class Settings(BaseSettings):
 
     database_path: str = "bling_trello_sync.db"
 
+    # Token das rotas administrativas do servidor (Bearer, X-API-Key ou ?token=).
+    # Obrigatório para /sincronizar, /trello/listas e /oauth/bling/autorizar.
+    # O webhook do Bling continua autenticado só pela assinatura HMAC.
+    api_token: str = ""
+
     verificar_assinatura_webhook: bool = True
 
     @field_validator(

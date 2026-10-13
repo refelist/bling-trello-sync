@@ -118,14 +118,15 @@ Se um dia quiser periodicidade sem lembrar de executar, basta agendar o mesmo co
 
 O serviço FastAPI em `bling_trello_sync/main.py` expõe:
 
-| Rota | Uso |
-|---|---|
-| `POST /webhooks/bling` | endereço a cadastrar no webhook do Bling |
-| `GET /healthz` | verificação de saúde |
-| `GET /oauth/bling/autorizar` e `GET /oauth/bling/callback` | autorização do Bling pelo navegador |
-| `GET /trello/listas` | listas do board, para montar o mapa de situações |
-| `POST /sincronizar/{pedido_id}` | sincroniza um pedido de venda sob demanda |
-| `POST /sincronizar-compra/{pedido_id}` | sincroniza um pedido de compra sob demanda |
+| Rota | Uso | Auth |
+|---|---|---|
+| `POST /webhooks/bling` | endereço a cadastrar no webhook do Bling | assinatura HMAC do Bling |
+| `GET /healthz` | verificação de saúde | aberta |
+| `GET /oauth/bling/autorizar` | inicia autorização do Bling no navegador | `API_TOKEN` |
+| `GET /oauth/bling/callback` | retorno do Bling após autorizar | `state` OAuth emitido por `/autorizar` |
+| `GET /trello/listas` | listas do board, para montar o mapa de situações | `API_TOKEN` |
+| `POST /sincronizar/{pedido_id}` | sincroniza um pedido de venda sob demanda | `API_TOKEN` |
+| `POST /sincronizar-compra/{pedido_id}` | sincroniza um pedido de compra sob demanda | `API_TOKEN` |
 
 Rodar:
 
@@ -134,9 +135,9 @@ pip install -r requirements.txt
 uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
 ```
 
-O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling).
+O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling) e `API_TOKEN` deve ser um segredo longo; as rotas administrativas aceitam `Authorization: Bearer …`, o cabeçalho `X-API-Key` ou `?token=` (útil para abrir `/oauth/bling/autorizar` no navegador).
 
-Cada evento é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. O `eventId` é guardado no banco, então um evento reenviado não é processado duas vezes, e a sincronização roda em segundo plano para responder ao Bling dentro do tempo limite.
+Cada evento do webhook é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. A sincronização roda em segundo plano para responder ao Bling dentro do tempo limite; o `eventId` só é gravado depois que o card é atualizado, então uma falha permite que o Bling reenvie o mesmo evento.
 
 ## Pedidos de compra
 
@@ -199,3 +200,5 @@ pip install -r requirements-dev.txt
 pytest
 ruff check .
 ```
+
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda `ruff check` e `pytest` em todo push e pull request.

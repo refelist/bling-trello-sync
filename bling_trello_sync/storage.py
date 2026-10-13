@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS estado (
 """
 
 CHAVE_ULTIMA_SINCRONIZACAO = "ultima_sincronizacao"
+CHAVE_OAUTH_STATE = "oauth_state"
 
 
 @dataclass
@@ -183,14 +184,36 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    def evento_ja_processado(self, event_id: str) -> bool:
+        """True quando o evento já foi sincronizado com sucesso."""
+        with self._conexao() as conn:
+            linha = conn.execute(
+                "SELECT 1 FROM evento_processado WHERE event_id = ?", (event_id,)
+            ).fetchone()
+        return linha is not None
+
     def registrar_evento(self, event_id: str) -> bool:
-        """Grava o evento do webhook e devolve False se ele já tinha sido processado."""
+        """Marca o evento como processado; devolve False se ele já estava gravado."""
         with self._conexao() as conn:
             cursor = conn.execute(
                 "INSERT OR IGNORE INTO evento_processado (event_id, processado_em) VALUES (?, ?)",
                 (event_id, time.time()),
             )
             return cursor.rowcount > 0
+
+    def salvar_oauth_state(self, state: str) -> None:
+        self.salvar_estado(CHAVE_OAUTH_STATE, state)
+
+    def consumir_oauth_state(self, state: str) -> bool:
+        """Confere e apaga o state OAuth; devolve True só se ele batia com o gravado."""
+        with self._conexao() as conn:
+            linha = conn.execute(
+                "SELECT valor FROM estado WHERE chave = ?", (CHAVE_OAUTH_STATE,)
+            ).fetchone()
+            if linha is None or linha["valor"] != state:
+                return False
+            conn.execute("DELETE FROM estado WHERE chave = ?", (CHAVE_OAUTH_STATE,))
+        return True
 
     def obter_estado(self, chave: str) -> str | None:
         with self._conexao() as conn:
