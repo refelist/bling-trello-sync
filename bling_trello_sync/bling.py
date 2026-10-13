@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import threading
 import time
 from typing import Any
 from urllib.parse import urlencode
@@ -32,6 +33,7 @@ class BlingClient:
         self.settings = settings
         self.storage = storage
         self._client = client or httpx.Client(timeout=30)
+        self._token_lock = threading.Lock()
 
     def url_de_autorizacao(self, state: str) -> str:
         params = {
@@ -76,7 +78,19 @@ class BlingClient:
         )
 
     def renovar_token(self, refresh_token: str) -> TokenBling:
-        return self._requisitar_token({"grant_type": "refresh_token", "refresh_token": refresh_token})
+        """Renova o access token. Serializado para não invalidar o refresh em paralelo."""
+        with self._token_lock:
+            atual = self.storage.obter_token()
+            # Outra thread pode ter renovado enquanto esperávamos o lock.
+            if (
+                atual is not None
+                and not atual.expirado
+                and atual.refresh_token != refresh_token
+            ):
+                return atual
+            return self._requisitar_token(
+                {"grant_type": "refresh_token", "refresh_token": refresh_token}
+            )
 
     def _access_token(self) -> str:
         token = self.storage.obter_token()

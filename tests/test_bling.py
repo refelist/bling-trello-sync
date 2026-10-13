@@ -1,3 +1,4 @@
+import threading
 import time
 
 import httpx
@@ -40,3 +41,43 @@ def test_get_desiste_apos_varias_respostas_429(settings, storage_com_token, monk
 
     with pytest.raises(httpx.HTTPStatusError):
         bling.obter_pedido_venda(1)
+
+
+def test_renovacao_concorrente_usa_um_unico_refresh(settings, monkeypatch):
+    storage = Storage(settings.database_path)
+    storage.salvar_token(TokenBling("velho", "refresh-1", time.time() - 10))
+    chamadas = {"n": 0}
+    barreira = threading.Barrier(2)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/oauth/token"):
+            chamadas["n"] += 1
+            time.sleep(0.05)
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": f"novo-{chamadas['n']}",
+                    "refresh_token": f"refresh-{chamadas['n'] + 1}",
+                    "expires_in": 3600,
+                },
+            )
+        return httpx.Response(200, json={"data": {"id": 1}})
+
+    bling = BlingClient(
+        settings, storage, httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    def worker() -> None:
+        barreira.wait()
+        bling._access_token()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert chamadas["n"] == 1
+    token = storage.obter_token()
+    assert token is not None
+    assert token.access_token.startswith("novo-")

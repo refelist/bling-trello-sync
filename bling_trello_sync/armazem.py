@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS movimento_caixa (
     empresa TEXT NOT NULL,
     bordero_id BIGINT NOT NULL,
     conta_id BIGINT NOT NULL,
+    sequencia INTEGER NOT NULL DEFAULT 0,
     tipo TEXT NOT NULL,
     data DATE,
     valor_pago DOUBLE PRECISION,
@@ -109,7 +110,7 @@ CREATE TABLE IF NOT EXISTS movimento_caixa (
     contato_id BIGINT,
     contato_nome TEXT,
     historico TEXT,
-    PRIMARY KEY (empresa, bordero_id, conta_id)
+    PRIMARY KEY (empresa, bordero_id, conta_id, sequencia)
 );
 
 CREATE TABLE IF NOT EXISTS pedido_venda (
@@ -200,9 +201,12 @@ CHAVES = {
     "contato": ("empresa", "id"),
     "conta_receber": ("empresa", "id"),
     "conta_pagar": ("empresa", "id"),
-    "movimento_caixa": ("empresa", "bordero_id", "conta_id"),
+    "movimento_caixa": ("empresa", "bordero_id", "conta_id", "sequencia"),
     "pedido_venda": ("empresa", "id"),
 }
+
+# Suba este número quando mudar tabelas/visões para forçar migração única (sem DROP a cada boot).
+ESQUEMA_VERSAO = 2
 
 
 def versao_da_conta(situacao: Any, valor: Any, vencimento: Any) -> tuple[Any, ...]:
@@ -243,18 +247,120 @@ class Armazem:
             conn.close()
 
     def _criar_esquema(self) -> None:
-        comandos = [c.strip() for c in VISOES.split(";") if c.strip()]
-        nomes = [c.split("VIEW", 1)[1].split("AS", 1)[0].strip() for c in comandos]
+        comandos_visao = [c.strip() for c in VISOES.split(";") if c.strip()]
+        nomes_visao = [c.split("VIEW", 1)[1].split("AS", 1)[0].strip() for c in comandos_visao]
         with self.conexao() as conn:
             cursor = conn.cursor()
+            self._assegurar_meta(cursor)
             for comando in TABELAS.split(";"):
                 if comando.strip():
                     cursor.execute(comando)
-            # As visões dependem umas das outras, então caem todas antes de serem recriadas.
-            for nome in reversed(nomes):
-                cursor.execute(f"DROP VIEW IF EXISTS {nome}")
-            for comando in comandos:
-                cursor.execute(comando)
+            self._migrar_movimento_caixa(cursor)
+            versao = self._ler_versao(cursor)
+            if versao < ESQUEMA_VERSAO:
+                for nome in reversed(nomes_visao):
+                    cursor.execute(f"DROP VIEW IF EXISTS {nome}")
+                for comando in comandos_visao:
+                    cursor.execute(comando)
+                self._gravar_versao(cursor, ESQUEMA_VERSAO)
+            else:
+                for comando, nome in zip(comandos_visao, nomes_visao, strict=True):
+                    if not self._visao_existe(cursor, nome):
+                        cursor.execute(comando)
+
+    def _assegurar_meta(self, cursor: Any) -> None:
+        cursor.execute(
+            "CREATE TABLE IF NOT EXISTS esquema_meta ("
+            "chave TEXT NOT NULL PRIMARY KEY, valor TEXT NOT NULL)"
+        )
+
+    def _ler_versao(self, cursor: Any) -> int:
+        cursor.execute(
+            f"SELECT valor FROM esquema_meta WHERE chave = {self.placeholder}",
+            ("versao",),
+        )
+        linha = cursor.fetchone()
+        if linha is None:
+            return 0
+        try:
+            return int(linha[0])
+        except (TypeError, ValueError):
+            return 0
+
+    def _gravar_versao(self, cursor: Any, versao: int) -> None:
+        cursor.execute(
+            f"INSERT INTO esquema_meta (chave, valor) VALUES ({self.placeholder}, {self.placeholder}) "
+            "ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor",
+            ("versao", str(versao)),
+        )
+
+    def _visao_existe(self, cursor: Any, nome: str) -> bool:
+        if self.postgres:
+            cursor.execute(
+                "SELECT 1 FROM information_schema.views "
+                "WHERE table_schema = 'public' AND table_name = %s",
+                (nome,),
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = ?", (nome,)
+            )
+        return cursor.fetchone() is not None
+
+    def _colunas_da_tabela(self, cursor: Any, tabela: str) -> set[str]:
+        if self.postgres:
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = %s",
+                (tabela,),
+            )
+            return {str(linha[0]) for linha in cursor.fetchall()}
+        cursor.execute(f"PRAGMA table_info({tabela})")
+        return {str(linha[1]) for linha in cursor.fetchall()}
+
+    def _migrar_movimento_caixa(self, cursor: Any) -> None:
+        """Garante a coluna sequencia e a PK (empresa, bordero_id, conta_id, sequencia)."""
+        colunas = self._colunas_da_tabela(cursor, "movimento_caixa")
+        if not colunas:
+            return
+        if "sequencia" in colunas:
+            return
+        if self.postgres:
+            cursor.execute(
+                "ALTER TABLE movimento_caixa ADD COLUMN sequencia INTEGER NOT NULL DEFAULT 0"
+            )
+            cursor.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'movimento_caixa'::regclass AND contype = 'p'"
+            )
+            pk = cursor.fetchone()
+            if pk is not None:
+                cursor.execute(f'ALTER TABLE movimento_caixa DROP CONSTRAINT "{pk[0]}"')
+            cursor.execute(
+                "ALTER TABLE movimento_caixa "
+                "ADD PRIMARY KEY (empresa, bordero_id, conta_id, sequencia)"
+            )
+            return
+        cursor.execute(
+            "CREATE TABLE movimento_caixa_nova ("
+            "empresa TEXT NOT NULL, bordero_id BIGINT NOT NULL, conta_id BIGINT NOT NULL, "
+            "sequencia INTEGER NOT NULL DEFAULT 0, tipo TEXT NOT NULL, data DATE, "
+            "valor_pago DOUBLE PRECISION, juros DOUBLE PRECISION, desconto DOUBLE PRECISION, "
+            "acrescimo DOUBLE PRECISION, tarifa DOUBLE PRECISION, categoria_id BIGINT, "
+            "portador_id BIGINT, contato_id BIGINT, contato_nome TEXT, historico TEXT, "
+            "PRIMARY KEY (empresa, bordero_id, conta_id, sequencia))"
+        )
+        cursor.execute(
+            "INSERT INTO movimento_caixa_nova ("
+            "empresa, bordero_id, conta_id, sequencia, tipo, data, valor_pago, juros, "
+            "desconto, acrescimo, tarifa, categoria_id, portador_id, contato_id, "
+            "contato_nome, historico) "
+            "SELECT empresa, bordero_id, conta_id, 0, tipo, data, valor_pago, juros, "
+            "desconto, acrescimo, tarifa, categoria_id, portador_id, contato_id, "
+            "contato_nome, historico FROM movimento_caixa"
+        )
+        cursor.execute("DROP TABLE movimento_caixa")
+        cursor.execute("ALTER TABLE movimento_caixa_nova RENAME TO movimento_caixa")
 
     def gravar(self, tabela: str, linhas: Sequence[dict[str, Any]]) -> int:
         """Insere ou atualiza as linhas pela chave primária da tabela."""

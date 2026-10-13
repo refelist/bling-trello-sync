@@ -144,8 +144,40 @@ def test_bordero_gera_um_movimento_por_pagamento():
     }
     linhas = linhas_do_bordero(bordero, "Empresa 1", "pagar", conta_id=7)
     assert [linha["valor_pago"] for linha in linhas] == [10.0, 20.0]
+    assert [linha["sequencia"] for linha in linhas] == [0, 1]
     assert linhas[0]["data"] == "2026-01-11"
     assert linhas[0]["conta_id"] == 7
+
+
+def test_varios_pagamentos_do_bordero_sao_gravados(settings, armazem):
+    coletor, bling = _coletor(settings, armazem)
+
+    def obter_bordero(bordero_id):
+        return {
+            "id": bordero_id,
+            "data": "2026-01-11",
+            "historico": "Recebimento",
+            "portador": {"id": 20},
+            "categoria": {"id": 10},
+            "pagamentos": [
+                {"contato": {"id": 5, "nome": "Cliente"}, "valorPago": 40.0},
+                {"contato": {"id": 5, "nome": "Cliente"}, "valorPago": 60.0},
+            ],
+        }
+
+    bling.obter_bordero = obter_bordero  # type: ignore[method-assign]
+    coletor.coletar(dias=30)
+
+    assert armazem.ler("SELECT COUNT(*) FROM movimento_caixa")[0][0] == 2
+    valores = [linha[0] for linha in armazem.ler("SELECT valor_pago FROM movimento_caixa ORDER BY sequencia")]
+    assert valores == [40.0, 60.0]
+
+
+def test_segunda_instancia_do_armazem_nao_derruba_visoes(settings, armazem):
+    coletor, _ = _coletor(settings, armazem)
+    coletor.coletar(dias=30)
+    outro = Armazem(armazem.url)
+    assert outro.ler("SELECT COUNT(*) FROM vw_dre")[0][0] >= 1
 
 
 def test_coleta_grava_tabelas_e_visoes(settings, armazem):

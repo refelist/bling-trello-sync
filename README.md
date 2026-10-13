@@ -141,7 +141,7 @@ uvicorn bling_trello_sync.main:app --host 0.0.0.0 --port 8000
 
 O endereço precisa ser público e em **HTTPS** para o Bling entregar os eventos. No `.env`, `BLING_REDIRECT_URI` passa a ser `https://seu-dominio/oauth/bling/callback` (o mesmo valor deve estar cadastrado no aplicativo do Bling) e `API_TOKEN` deve ser um segredo longo; as rotas administrativas aceitam `Authorization: Bearer …`, o cabeçalho `X-API-Key` ou `?token=` (útil para abrir `/oauth/bling/autorizar` no navegador).
 
-Cada evento do webhook é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. A sincronização roda em segundo plano para responder ao Bling dentro do tempo limite; o `eventId` só é gravado depois que o card é atualizado, então uma falha permite que o Bling reenvie o mesmo evento.
+Cada evento do webhook é validado pelo cabeçalho `X-Bling-Signature-256` (HMAC-SHA256 do corpo com o client secret); `VERIFICAR_ASSINATURA_WEBHOOK=false` desliga a checagem apenas para testes locais. A sincronização roda em segundo plano para responder ao Bling dentro do tempo limite. O `eventId` é reservado de forma atômica no início (`processing`) e só vira `done` depois do card atualizado; se a sync falhar ou o pedido for ignorado (filtro de loja), o claim é liberado para o Bling poder reenviar.
 
 ## Pedidos de compra
 

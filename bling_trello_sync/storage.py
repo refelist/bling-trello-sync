@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS nota_comentada (
 
 CREATE TABLE IF NOT EXISTS evento_processado (
     event_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'done',
     processado_em REAL NOT NULL
 );
 
@@ -83,6 +84,7 @@ class Storage:
         self.caminho = caminho
         with self._conexao() as conn:
             conn.executescript(ESQUEMA)
+            self._migrar_evento_processado(conn)
 
     @contextmanager
     def _conexao(self) -> Iterator[sqlite3.Connection]:
@@ -184,19 +186,56 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    @staticmethod
+    def _migrar_evento_processado(conn: sqlite3.Connection) -> None:
+        colunas = {linha[1] for linha in conn.execute("PRAGMA table_info(evento_processado)")}
+        if "status" not in colunas:
+            conn.execute(
+                "ALTER TABLE evento_processado ADD COLUMN status TEXT NOT NULL DEFAULT 'done'"
+            )
+
     def evento_ja_processado(self, event_id: str) -> bool:
-        """True quando o evento já foi sincronizado com sucesso."""
+        """True quando o evento já foi sincronizado com sucesso (status done)."""
         with self._conexao() as conn:
             linha = conn.execute(
-                "SELECT 1 FROM evento_processado WHERE event_id = ?", (event_id,)
+                "SELECT status FROM evento_processado WHERE event_id = ?", (event_id,)
             ).fetchone()
-        return linha is not None
+        return linha is not None and linha["status"] == "done"
 
-    def registrar_evento(self, event_id: str) -> bool:
-        """Marca o evento como processado; devolve False se ele já estava gravado."""
+    def reclamar_evento(self, event_id: str) -> bool:
+        """Tenta reservar o eventId (status processing). Devolve False se já existe."""
         with self._conexao() as conn:
             cursor = conn.execute(
-                "INSERT OR IGNORE INTO evento_processado (event_id, processado_em) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO evento_processado (event_id, status, processado_em) "
+                "VALUES (?, 'processing', ?)",
+                (event_id, time.time()),
+            )
+            return cursor.rowcount > 0
+
+    def concluir_evento(self, event_id: str) -> None:
+        """Marca o evento como processado com sucesso."""
+        with self._conexao() as conn:
+            conn.execute(
+                "UPDATE evento_processado SET status = 'done', processado_em = ? WHERE event_id = ?",
+                (time.time(), event_id),
+            )
+
+    def liberar_evento(self, event_id: str) -> None:
+        """Remove o claim em processing para o Bling poder reenviar ou o filtro mudar."""
+        with self._conexao() as conn:
+            conn.execute(
+                "DELETE FROM evento_processado WHERE event_id = ? AND status = 'processing'",
+                (event_id,),
+            )
+
+    def registrar_evento(self, event_id: str) -> bool:
+        """Compatível com o fluxo antigo: conclui o evento (ou o cria já como done)."""
+        with self._conexao() as conn:
+            cursor = conn.execute(
+                "INSERT INTO evento_processado (event_id, status, processado_em) "
+                "VALUES (?, 'done', ?) "
+                "ON CONFLICT(event_id) DO UPDATE SET status = 'done', "
+                "processado_em = excluded.processado_em",
                 (event_id, time.time()),
             )
             return cursor.rowcount > 0

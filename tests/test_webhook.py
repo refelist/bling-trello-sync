@@ -112,6 +112,38 @@ def test_webhook_reprocessa_quando_a_sincronizacao_falha(settings):
     app.dependency_overrides.clear()
 
 
+def test_claim_atomico_impede_dois_processamentos(settings):
+    storage = Storage(settings.database_path)
+    assert storage.reclamar_evento("e-dup")
+    assert not storage.reclamar_evento("e-dup")
+    storage.liberar_evento("e-dup")
+    assert storage.reclamar_evento("e-dup")
+    storage.concluir_evento("e-dup")
+    assert storage.evento_ja_processado("e-dup")
+    assert not storage.reclamar_evento("e-dup")
+
+
+def test_webhook_libera_evento_quando_pedido_e_ignorado(settings):
+    settings.api_token = "token-teste"
+    Storage(settings.database_path)
+
+    class Ignorado:
+        def sincronizar_pedido(self, pedido_id: int):
+            return type("R", (), {"acao": "ignorado"})()
+
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_sincronizador] = lambda: Ignorado()
+    client = TestClient(app)
+    corpo = json.dumps({"eventId": "e-ign", "event": "order.created", "data": {"id": 5}}).encode()
+    headers = {"X-Bling-Signature-256": _assinar(corpo, settings.bling_client_secret)}
+
+    assert client.post("/webhooks/bling", content=corpo, headers=headers).status_code == 202
+    assert not Storage(settings.database_path).evento_ja_processado("e-ign")
+    # Sem claim residual: um novo envio pode ser processado.
+    assert Storage(settings.database_path).reclamar_evento("e-ign")
+    app.dependency_overrides.clear()
+
+
 def test_webhook_ignora_outros_recursos(cliente, settings):
     client, sincronizador, _ = cliente
     corpo = json.dumps({"eventId": "e2", "event": "product.created", "data": {"id": 1}}).encode()

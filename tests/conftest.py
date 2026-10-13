@@ -7,7 +7,9 @@ from bling_trello_sync.config import Settings
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
+    # _env_file=None isola os testes do .env local/de produção.
     return Settings(
+        _env_file=None,
         bling_client_id="client-id",
         bling_client_secret="client-secret",
         bling_redirect_uri="https://exemplo.com/oauth/bling/callback",
@@ -16,6 +18,8 @@ def settings(tmp_path) -> Settings:
         trello_board_id="board-1",
         trello_list_id_padrao="lista-entrada",
         trello_list_id_por_situacao=json.dumps({"9": "lista-atendido"}),
+        nomes_situacoes={},
+        api_token="",
         database_path=str(tmp_path / "teste.db"),
     )
 

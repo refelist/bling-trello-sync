@@ -181,15 +181,19 @@ def linha_conta_pagar(conta: dict[str, Any], empresa: str, agora: str) -> dict[s
 def linhas_do_bordero(
     bordero: dict[str, Any], empresa: str, tipo: str, conta_id: int
 ) -> list[dict[str, Any]]:
-    """Um movimento de caixa por pagamento do borderô, ligado à conta que o originou."""
+    """Um movimento de caixa por pagamento do borderô, ligado à conta que o originou.
+
+    `sequencia` distingue vários pagamentos no mesmo borderô+conta (PK do armazém).
+    """
     linhas = []
-    for pagamento in bordero.get("pagamentos") or []:
+    for sequencia, pagamento in enumerate(bordero.get("pagamentos") or []):
         contato = pagamento.get("contato") or {}
         linhas.append(
             {
                 "empresa": empresa,
                 "bordero_id": _int(bordero.get("id")),
                 "conta_id": conta_id,
+                "sequencia": sequencia,
                 "tipo": tipo,
                 "data": _data(bordero.get("data")),
                 "valor_pago": _float(pagamento.get("valorPago")),
@@ -350,7 +354,8 @@ class ColetorFinanceiro:
         resumo.somar(
             "movimento_caixa",
             self.armazem.gravar(
-                "movimento_caixa", _sem_repetir(movimentos, ("bordero_id", "conta_id"))
+                "movimento_caixa",
+                _sem_repetir(movimentos, ("bordero_id", "conta_id", "sequencia")),
             ),
         )
 

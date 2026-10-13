@@ -258,12 +258,12 @@ async def webhook_bling(
         logger.warning("Webhook sem id de pedido identificável: %s", evento)
         return JSONResponse({"status": "ignorado", "motivo": "id do pedido não encontrado no payload"})
 
-    if event_id and storage.evento_ja_processado(event_id):
+    # Claim atômico: evita duas syncs do mesmo eventId em paralelo. Se falhar depois, libera.
+    if event_id and not storage.reclamar_evento(event_id):
         return JSONResponse({"status": "ignorado", "motivo": "evento já processado"})
 
     acao = nome_evento.split(".", 1)[1]
     # O Bling exige resposta 2xx em até 5s, então a sincronização roda fora do ciclo da requisição.
-    # O eventId só é gravado depois do card atualizado; se falhar, um reenvio do Bling pode tentar de novo.
     background_tasks.add_task(_processar, sincronizador, storage, pedido_id, acao, event_id)
     return JSONResponse({"status": "recebido", "pedidoId": pedido_id, "acao": acao}, status_code=202)
 
@@ -278,7 +278,15 @@ def _processar(
     try:
         resultado = sincronizador.sincronizar_pedido(pedido_id)
         if event_id:
-            storage.registrar_evento(event_id)
+            if resultado.acao == "ignorado":
+                # Loja filtrada: libera o claim para poder reprocessar se o filtro mudar.
+                storage.liberar_evento(event_id)
+            else:
+                storage.concluir_evento(event_id)
         logger.info("Pedido %s (%s): %s", pedido_id, acao, resultado.acao)
     except Exception:  # noqa: BLE001 - background task não pode derrubar o servidor
-        logger.exception("Falha ao sincronizar o pedido %s; o evento não foi marcado como processado", pedido_id)
+        if event_id:
+            storage.liberar_evento(event_id)
+        logger.exception(
+            "Falha ao sincronizar o pedido %s; o evento foi liberado para reenvio", pedido_id
+        )
