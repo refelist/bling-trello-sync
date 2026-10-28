@@ -22,6 +22,12 @@ sys.exit(0 if Storage(get_settings().database_path).obter_token() else 1)")
 BASE="$(valor BLING_REDIRECT_URI "$ORIGEM/.env" | tr -d '"' | sed 's#/oauth/bling/callback.*##')"
 [ -n "$BASE" ] || { echo "Não achei BLING_REDIRECT_URI em $ORIGEM/.env"; exit 1; }
 REDIRECT="$BASE/financeiro/autorizado"
+# O retorno do Bling cai no app $APP (página 404) e fica no log de acesso dele; pega de lá
+# para não depender de alguém copiar e colar (o code do Bling vence em ~1 minuto).
+capturar_retorno() {
+  timeout 1800 journalctl -u "$APP" -f -n0 -o cat \
+    | grep -m1 -o '/financeiro/autorizado?[^ "]*' | sed 's#^#https://retorno#' || true
+}
 
 passo "Código em $DESTINO"
 if [ ! -d "$DESTINO/.git" ]; then
@@ -67,8 +73,9 @@ if tem_token; then
   echo "já autorizado"
 else
   echo "Abra o link abaixo, logado no Bling da empresa certa, confira tudo com ✓ verde e autorize."
-  echo "Depois aparece uma página 'Not Found': é normal. Copie o endereço inteiro dela e cole aqui (em até 1 minuto)."
-  (cd "$DESTINO" && .venv/bin/python -m bling_trello_sync.cli autorizar) || true
+  echo "Pode mandar o link para outra pessoa (vale este link, não os antigos). Depois de autorizar aparece"
+  echo "uma página 'Not Found': é normal, o servidor pega o retorno sozinho. Deixe esta janela aberta (até 30 min)."
+  (cd "$DESTINO" && .venv/bin/python -m bling_trello_sync.cli autorizar < <(capturar_retorno)) || true
   tem_token || { echo "Autorização não concluída. Rode este script de novo."; exit 1; }
 fi
 

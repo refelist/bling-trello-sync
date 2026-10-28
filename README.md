@@ -195,7 +195,7 @@ cd /root/bling-trello-sync && bash deploy/instalar-financeiro.sh jh
 cd /root/bling-trello-sync && bash deploy/instalar-financeiro.sh jhs
 ```
 
-A página do link de redirecionamento responde "Not Found" de propósito: copie a URL completa (com `code` e `state`) e cole no terminal. Para voltar ao modo antigo: `systemctl disable --now bling-financeiro.timer` e `FINANCEIRO_ATIVO=true` no `.env` do app Trello. O `deploy/checkup.sh` confere a agenda, a última execução e se algum app Trello ainda coleta a mesma empresa.
+A página do link de redirecionamento responde "Not Found" de propósito: o instalador lê o retorno (`code` e `state`) no log de acesso do app Trello da mesma empresa, então quem autoriza pode estar em outro computador. Para voltar ao modo antigo: `systemctl disable --now bling-financeiro.timer` e `FINANCEIRO_ATIVO=true` no `.env` do app Trello. O `deploy/checkup.sh` confere a agenda, a última execução e se algum app Trello ainda coleta a mesma empresa.
 
 Depois de separar, os escopos financeiros podem sair do app Trello (alterar escopos revoga as autorizações: autorize de novo pelo `POST /oauth/bling/ticket`). O app Trello continua precisando de Pedidos de Venda, Notas Fiscais, Pedidos de Compra, Situações, Categorias Receitas e Despesas e Contatos.
 
