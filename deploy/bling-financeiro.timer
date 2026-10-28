@@ -1,9 +1,8 @@
 [Unit]
-Description=Agenda da coleta financeira Bling → Postgres (JH) — só se FastAPI não coletar
+Description=Agenda da coleta financeira Bling → Postgres (JH), de hora em hora
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=1h
+OnCalendar=*-*-* *:05:00
 AccuracySec=1min
 Persistent=true
 Unit=bling-financeiro.service

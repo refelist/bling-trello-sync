@@ -3,12 +3,26 @@
 # Uso: bash deploy/checkup.sh [dominio-do-grafana]
 DOMINIO="${1:-jh-bi.duckdns.org}"
 APPS="${APPS:-bling-trello:/root/bling-trello-sync bling-trello-2:/root/bling-trello-sync-2}"
+FINANCEIROS="${FINANCEIROS:-bling-financeiro:/root/bling-financeiro bling-financeiro-jhs:/root/bling-financeiro-jhs}"
 SENHA_GRAFANA_ARQ="${SENHA_GRAFANA_ARQ:-/root/senha-grafana.txt}"
 
 ALERTAS=0
 ok() { printf '  [OK]      %s\n' "$*"; }
 atencao() { printf '  [ATENÇÃO] %s\n' "$*"; ALERTAS=$((ALERTAS + 1)); }
 codigo() { curl -s -o /dev/null -m 15 -w '%{http_code}' "$@"; }
+versao() {
+  local pasta="$1" servico="$2" ramo atras
+  git -C "$pasta" fetch -q 2>/dev/null || return 0
+  ramo="$(git -C "$pasta" branch --show-current)"
+  atras="$(git -C "$pasta" rev-list --count HEAD..origin/main 2>/dev/null)"
+  if [ "$ramo" != main ]; then
+    atencao "código no ramo '$ramo' em vez de main"
+  elif [ "${atras:-0}" -gt 0 ]; then
+    atencao "código $atras atualização(ões) atrás do GitHub (rode: cd $pasta && git pull && systemctl restart $servico)"
+  else
+    ok "código atualizado (main)"
+  fi
+}
 
 echo "== Serviços"
 for s in bling-trello bling-trello-2 grafana-server caddy postgresql; do
@@ -63,17 +77,31 @@ for par in $APPS; do
     ultima="$(journalctl -u "$servico" --since '3 hours ago' --no-pager 2>/dev/null | grep 'Compras:' | tail -1 | grep -o 'Compras:.*' | cut -c1-110)"
     [ -n "$ultima" ] && ok "última rodada de compras: $ultima" || atencao "nenhuma rodada de compras registrada nas últimas 3h"
   fi
-  if git -C "$pasta" fetch -q 2>/dev/null; then
-    ramo="$(git -C "$pasta" branch --show-current)"
-    atras="$(git -C "$pasta" rev-list --count HEAD..origin/main 2>/dev/null)"
-    if [ "$ramo" != main ]; then
-      atencao "código no ramo '$ramo' em vez de main"
-    elif [ "${atras:-0}" -gt 0 ]; then
-      atencao "código $atras atualização(ões) atrás do GitHub (rode: cd $pasta && git pull && systemctl restart $servico)"
-    else
-      ok "código atualizado (main)"
+  versao "$pasta" "$servico"
+done
+
+for par in $FINANCEIROS; do
+  servico="${par%%:*}"
+  pasta="${par#*:}"
+  [ -f "/etc/systemd/system/$servico.timer" ] || continue
+  echo "== Coleta financeira $servico ($pasta)"
+  [ "$(systemctl is-active "$servico.timer")" = active ] && ok "agenda ligada (próxima: $(systemctl show -p NextElapseUSecRealtime --value "$servico.timer"))" \
+    || atencao "agenda desligada (rode: systemctl enable --now $servico.timer)"
+  resultado="$(systemctl show -p Result --value "$servico.service")"
+  [ "$resultado" = success ] && ok "última execução terminou bem" \
+    || atencao "última execução falhou: $resultado (veja: journalctl -u $servico -n 50)"
+  perms="$(stat -c %a "$pasta/.env" 2>/dev/null)"
+  [ "$perms" = 600 ] && ok ".env protegido (600)" || atencao ".env com permissão $perms (rode: chmod 600 $pasta/.env)"
+  erros="$(journalctl -u "$servico" --since '6 hours ago' --no-pager 2>/dev/null | grep -ciE 'traceback|exception|level=error| ERROR |erro em')"
+  [ "${erros:-0}" -eq 0 ] && ok "nenhum erro nos logs das últimas 6h" \
+    || atencao "$erros linha(s) de erro nas últimas 6h (veja: journalctl -u $servico --since '6 hours ago' | grep -iE 'error|erro em')"
+  for app in $APPS; do
+    if grep -qiE '^FINANCEIRO_ATIVO=(true|1|sim|yes)' "${app#*:}/.env" 2>/dev/null \
+      && [ "$(grep -m1 '^FINANCEIRO_EMPRESA=' "${app#*:}/.env")" = "$(grep -m1 '^FINANCEIRO_EMPRESA=' "$pasta/.env")" ]; then
+      atencao "${app%%:*} também coleta o financeiro desta empresa (deixe FINANCEIRO_ATIVO=false no .env dele)"
     fi
-  fi
+  done
+  versao "$pasta" "$servico.timer"
 done
 
 echo "== Grafana"

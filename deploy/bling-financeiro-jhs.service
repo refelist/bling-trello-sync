@@ -1,18 +1,16 @@
 [Unit]
-Description=Coleta financeira Bling → Postgres (JHS) — oneshot sem Trello
+Description=Coleta financeira Bling → Postgres (JHS), separada dos apps do Trello
 After=network-online.target postgresql.service
 Wants=network-online.target
 
-# Só use se NÃO houver uvicorn com FINANCEIRO_ATIVO=true (evita coleta duplicada).
-# Ajuste paths para a pasta real (ex.: /root/bling-trello-sync-2).
+# Instalado por deploy/instalar-financeiro.sh. Usa app Bling, token e .env próprios
+# em /root/bling-financeiro-jhs: um problema aqui não derruba o Trello, e vice-versa.
 [Service]
 Type=oneshot
 User=root
-WorkingDirectory=/opt/bling-trello-sync-jhs
-EnvironmentFile=/opt/bling-trello-sync-jhs/.env
-ExecStart=/opt/bling-trello-sync-jhs/.venv/bin/python -m bling_trello_sync.cli sincronizar-financeiro
+WorkingDirectory=/root/bling-financeiro-jhs
+ExecStart=/root/bling-financeiro-jhs/.venv/bin/python -m bling_trello_sync.cli sincronizar-financeiro
 Nice=10
-TimeoutStartSec=2h
-
-[Install]
-WantedBy=multi-user.target
+CPUWeight=20
+MemoryMax=450M
+TimeoutStartSec=50min

@@ -179,11 +179,27 @@ python -m bling_trello_sync.cli sincronizar-compra 12345678
 
 ## Financeiro (Power BI / Grafana)
 
-Independente do Trello. Com `FINANCEIRO_ATIVO=true`, **cada instância FastAPI** já agenda a coleta a cada `FINANCEIRO_INTERVALO_MINUTOS` (loop em `main.py`). No layout JH/JHS isso cobre as duas empresas sem unit extra.
+A coleta financeira roda **separada dos apps do Trello**: cada empresa tem um app próprio no Bling (só com os escopos financeiros), pasta, `.env`, SQLite de token e agenda systemd próprios. Assim, um problema de autorização, memória ou código num lado não derruba o outro.
 
-**Não instale** `deploy/bling-financeiro*.timer` se os apps uvicorn já estão com `FINANCEIRO_ATIVO=true` — a coleta se repetiria (mais carga no Bling / risco de 429) e os templates apontam para `/opt/...`, que no servidor atual não é onde o código vive.
+| Empresa | Pasta | Agenda | Link de redirecionamento do app Bling |
+|---|---|---|---|
+| JH | `/root/bling-financeiro` | `bling-financeiro.timer` (hh:05) | `<base do BLING_REDIRECT_URI do app Trello>/financeiro/autorizado` |
+| JHS | `/root/bling-financeiro-jhs` | `bling-financeiro-jhs.timer` (hh:35) | idem, com a base do app Trello da JHS |
 
-Os timers oneshot em `deploy/bling-financeiro*.{service,timer}` só fazem sentido em máquina **sem** o FastAPI (ou com `FINANCEIRO_ATIVO=false`), só para alimentar o Postgres. Nesse caso, ajuste antes os paths no unit para a pasta real e o `.env` da conta.
+Escopos do app financeiro: Contas a Pagar, Contas a Receber (com borderôs), Caixas e Bancos, Contas Contábeis, Categorias Receitas e Despesas, Formas de Pagamento, Contatos e Pedidos de Venda.
+
+Instalação (idempotente; pede Client Id/Secret, conduz a autorização, instala a agenda, desliga `FINANCEIRO_ATIVO` no app Trello da mesma empresa e roda a primeira coleta):
+
+```bash
+cd /root/bling-trello-sync && bash deploy/instalar-financeiro.sh jh
+cd /root/bling-trello-sync && bash deploy/instalar-financeiro.sh jhs
+```
+
+A página do link de redirecionamento responde "Not Found" de propósito: copie a URL completa (com `code` e `state`) e cole no terminal. Para voltar ao modo antigo: `systemctl disable --now bling-financeiro.timer` e `FINANCEIRO_ATIVO=true` no `.env` do app Trello. O `deploy/checkup.sh` confere a agenda, a última execução e se algum app Trello ainda coleta a mesma empresa.
+
+Depois de separar, os escopos financeiros podem sair do app Trello (alterar escopos revoga as autorizações: autorize de novo pelo `POST /oauth/bling/ticket`). O app Trello continua precisando de Pedidos de Venda, Notas Fiscais, Pedidos de Compra, Situações, Categorias Receitas e Despesas e Contatos.
+
+`FINANCEIRO_ATIVO=true` no FastAPI ainda funciona (loop em `main.py`), mas não use junto com a agenda da mesma empresa: a coleta se repetiria.
 
 Coleta manual / backfill:
 
