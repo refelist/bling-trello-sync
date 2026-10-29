@@ -130,7 +130,7 @@ if [ -z "$coletas" ] || echo "$coletas" | grep -qiE 'error|erro|could not'; then
   atencao "não consegui ler a última coleta: $(echo "$coletas" | head -1 | cut -c1-150)"
 else
   while IFS='|' read -r empresa horas sucesso nerros; do
-    if [ "$sucesso" = t ] && awk "BEGIN {exit !($horas < 3)}"; then
+    if { [ "$sucesso" = t ] || [ "$sucesso" = 1 ]; } && awk "BEGIN {exit !($horas < 3)}"; then
       ok "$empresa: última coleta há ${horas}h, $nerros erro(s) de item"
     else
       atencao "$empresa: última coleta há ${horas}h, ok=$sucesso, $nerros erro(s) de item"
